@@ -57,6 +57,7 @@ bool xflag;		/* Print stats once a second. */
 
 int niceval;		/* Nice setting. */
 int rsecs;		/* Run for rsecs seconds. */
+unsigned int settle_secs;	/* Settle before test this many seconds */
 
 volatile sig_atomic_t start;	/* Can we start? */
 volatile sig_atomic_t done;	/* Should we stop? */
@@ -230,10 +231,11 @@ started(int trash)
 void
 usage(void)
 {
-	fprintf(stderr, "usage: late [-bpux] [-c work us] [-i work loops] "
-	    "[-n niceval] [-r run seconds] [-s sleep us] [-w work iterations]\n"
+	fprintf(stderr, "usage: late [-pux] [-b settle seconds] [-c work us] "
+	    "[-i work loops] [-n niceval] [-r run seconds] [-s sleep us] "
+	    "[-w work iterations]\n"
 	    "Options:\n"
-	    "-b: Wait for 2 seconds before the test to let priority settle.\n"
+	    "-b: Wait before the test to let priority settle.\n"
 	    "-c: Calibrate: Find work iterations to reach the passed duration.\n"
 	    "-i: Number of work + sleep loops (not specified: Infinite).\n"
 	    "-n: Renice to the passed value (may need privilege)."
@@ -275,10 +277,10 @@ main(int argc, char **argv)
 	smicro = 1000000;	/* 1 second default */
 	wmicro = 1000;		/* 1ms default */
 
-	while ((c = getopt(argc, argv, "bc:i:n:pr:s:uw:x")) != -1) {
+	while ((c = getopt(argc, argv, "b:c:i:n:pr:s:uw:x")) != -1) {
 		switch (c) {
 		case 'b':
-			bflag = true;
+			settle_secs = str_to_u(optarg);
 			break;
 		case 'c':
 			cflag = true;
@@ -362,18 +364,18 @@ main(int argc, char **argv)
 	if (gettimeofday(&wstime, NULL) != 0)
 		err(EXIT_FAILURE, "gettimeofday");
 
-	/* Sleep 2 seconds to let the priority settle before test */
-	if (bflag) {
+	/* Sleep to let the priority settle before test */
+	if (settle_secs != 0) {
 		struct timeval tv;
 
-		sleep(2);
+		sleep(settle_secs);
 
 		/*
 		 * We want the amount of time that we were denied slices before
 		 * we woke up to be reflected in the wstime.  This is why we
 		 * don't just start the timer below.
 		 */
-		tv.tv_sec = 2;
+		tv.tv_sec = settle_secs;
 		tv.tv_usec = 0;
 		timeradd(&wstime, &tv, &wstime);
 	}
