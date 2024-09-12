@@ -278,6 +278,7 @@ main(int argc, char **argv)
 	struct timeval wstime;	/* Work start time */
 	struct timeval curtime;	/* Current time. */
 	int smicro;	/* Microseconds of sleep */
+	bool wflag = false;
 	unsigned int wmicro;	/* Microseconds of work */
 	unsigned int wcount;	/* work count */
 	int icount;	/* Iteration count. */
@@ -285,7 +286,6 @@ main(int argc, char **argv)
 	int error;
 
 	smicro = 1000000;	/* 1 second default */
-	wmicro = 1000;		/* 1ms default */
 
 	while ((c = getopt(argc, argv, "a:b:c:i:l:n:pr:s:uw:x")) != -1) {
 		switch (c) {
@@ -326,6 +326,7 @@ main(int argc, char **argv)
 			uflag = true;
 			break;
 		case 'w':
+			wflag = 1;
 			wcount = str_to_u(optarg);
 			break;
 		case 'x':
@@ -335,6 +336,10 @@ main(int argc, char **argv)
 			usage();
 		}
 	}
+	if (!cflag && !wflag)
+		errx(EXIT_FAILURE,
+		    "Expected work iterations (through '-w'; else "
+		    "calibrate with '-c').");
 	if (cflag) {
 #ifdef __FreeBSD__
 		struct rtprio rtp = { .type = RTP_PRIO_FIFO,
@@ -409,7 +414,7 @@ main(int argc, char **argv)
 	}
 
 	while (done == 0 && (!iflag || icount--)) {
-		if (wmicro)
+		if (wflag)
 			work_memcpy(wcount);
 		if (done == 0 && smicro)
 			test_latency(smicro);
