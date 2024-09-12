@@ -468,6 +468,7 @@ work_memcpy(int count)
 
 	for (; count > 0; count--) {
 		memcpy(buf0, buf1, 4096);
+		asm volatile ("" ::: "memory");
 		memcpy(buf1, buf0, 4096);
 	}
 
