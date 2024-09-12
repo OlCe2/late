@@ -278,7 +278,7 @@ main(int argc, char **argv)
 	struct timeval wstime;	/* Work start time */
 	struct timeval curtime;	/* Current time. */
 	int smicro;	/* Microseconds of sleep */
-	int wmicro;	/* Microseconds of work */
+	unsigned int wmicro;	/* Microseconds of work */
 	unsigned int wcount;	/* work count */
 	int icount;	/* Iteration count. */
 	int c;
@@ -297,7 +297,7 @@ main(int argc, char **argv)
 			break;
 		case 'c':
 			cflag = true;
-			wmicro = atoi(optarg);
+			wmicro = str_to_u(optarg);
 			break;
 		case 'i':
 			iflag = true;
