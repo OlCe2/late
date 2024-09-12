@@ -495,29 +495,9 @@ test_latency(unsigned int microseconds)
 	if (gettimeofday(&stime, NULL) != 0)
 		err(EXIT_FAILURE, NULL);
 
-#if 0
-	/*
-	 * We could receive a signal while doing this.  We have to
-	 * recalculate microseconds and then retry.
-	 */
-	while (usleep(microseconds) != 0) {
-		uint64_t micro;
-
-		if (gettimeofday(&etime, NULL) != 0)
-			err(EXIT_FAILURE, NULL);
-
-		/* Figure out how long we slept for */
-		timersub(&etime, &stime, &dtime);
-		micro = (dtime.tv_sec * 1000000) + dtime.tv_usec;
-		if (micro >= microseconds)
-			break;
-		microseconds -= micro;
-	}
-#else
 	ts.tv_sec = microseconds / 1000000;
 	ts.tv_nsec = (microseconds - (ts.tv_sec * 1000000)) * 1000;
 	while (nanosleep(&ts, &ts) != 0);
-#endif
 
 	if (gettimeofday(&etime, NULL) != 0)
 		err(EXIT_FAILURE, NULL);
