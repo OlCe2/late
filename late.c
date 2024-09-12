@@ -62,6 +62,8 @@ unsigned int settle_secs;	/* Settle before test this many seconds */
 volatile sig_atomic_t start;	/* Can we start? */
 volatile sig_atomic_t done;	/* Should we stop? */
 
+/* Internal multiplicator for memcpy() iterations. */
+#define INT_MEMCPY_ITERATIONS	4096
 
 /*
  * Interval sets.
@@ -119,7 +121,7 @@ void test_latency(unsigned int microseconds);
 void test_latency_report(struct iset *is);
 int test_prio(void);
 
-void work_memcpy(int count);
+void work_memcpy(unsigned int count);
 int work_memcpy_calibrate(unsigned int microseconds);
 void work_memcpy_report(struct iset *is);
 
@@ -269,7 +271,7 @@ main(int argc, char **argv)
 	struct timeval curtime;	/* Current time. */
 	int smicro;	/* Microseconds of sleep */
 	int wmicro;	/* Microseconds of work */
-	int wcount;	/* work count */
+	unsigned int wcount;	/* work count */
 	int icount;	/* Iteration count. */
 	int c;
 	int error;
@@ -307,7 +309,7 @@ main(int argc, char **argv)
 			uflag = true;
 			break;
 		case 'w':
-			wcount = atoi(optarg);
+			wcount = str_to_u(optarg);
 			break;
 		case 'x':
 			xflag = true;
@@ -420,7 +422,7 @@ work_memcpy_calibrate(unsigned int micro)
 	struct timeval stime;	/* Start time */
 	struct timeval etime;	/* End time */
 	unsigned int rmicro;		/* Current run time */
-	int count;
+	unsigned int count;
 
 	rmicro = 0;
 	count = 1000;
@@ -443,19 +445,19 @@ work_memcpy_calibrate(unsigned int micro)
 		/* Figure out how long we worked for */
 		timersub(&etime, &stime, &etime);
 		rmicro = (etime.tv_sec * 1000000) + etime.tv_usec;
-		printf("work_memcpy %d takes %d microseconds.\n",
+		printf("work_memcpy %u takes %u microseconds.\n",
 		    count, rmicro);
-		printf("(%d * %d) / %d = %d\n", count, SCALE, rmicro,
+		printf("(%u * %u) / %u = %u\n", count, SCALE, rmicro,
 		    (count * SCALE) / rmicro);
 	}
 
-	printf("Calculated count: %d\n", count);
+	printf("Calculated count: %u\n", count);
 
 	return (count);
 }
 
 void
-work_memcpy(int count)
+work_memcpy(unsigned int count)
 {
 	struct timeval stime;	/* Start time */
 	struct timeval etime;	/* End time */
@@ -466,11 +468,12 @@ work_memcpy(int count)
 	if (gettimeofday(&stime, NULL) != 0)
 		err(EXIT_FAILURE, "gettimeofday");
 
-	for (; count > 0; count--) {
-		memcpy(buf0, buf1, 4096);
-		asm volatile ("" ::: "memory");
-		memcpy(buf1, buf0, 4096);
-	}
+	for (unsigned int i = 0; i != count; ++i)
+		for (unsigned int j = 0; j != INT_MEMCPY_ITERATIONS; ++j) {
+			memcpy(buf0, buf1, 4096);
+			asm volatile ("" ::: "memory");
+			memcpy(buf1, buf0, 4096);
+		}
 
 	if (gettimeofday(&etime, NULL) != 0)
 		err(EXIT_FAILURE, "gettimeofday");
