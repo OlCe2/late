@@ -24,36 +24,39 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <sys/types.h>
+#include <sys/resource.h>
+#ifdef __FreeBSD__
+#include <sys/rtprio.h>
+#endif
+#include <sys/time.h>
+#include <sys/timespec.h>
+
 #include <err.h>
+#ifndef __FreeBSD__
+#include <sched.h>
+#endif
 #include <signal.h>
+#include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <stdint.h>
-
-#include <sys/types.h>
-#include <sys/time.h>
-#include <sys/timespec.h>
-#include <sys/resource.h>
-#ifdef __FreeBSD__
-#include <sys/rtprio.h>
-#else
-#include <sched.h>
-#endif
 
 
-int bflag;		/* Settle before test */
-int cflag;		/* Calibrate ? */
-int iflag;		/* Iterate a specific number of times? */
-int pflag;		/* Print priority? */
-int uflag;		/* Use SIGUSR1 to start the test after settling */
-int xflag;		/* Print stats once a second. */
-int rsecs;		/* Run for rsecs seconds. */
+bool bflag;		/* Settle before test */
+bool cflag;		/* Calibrate ? */
+bool iflag;		/* Iterate a specific number of times? */
+bool pflag;		/* Print priority? */
+bool uflag;		/* Use SIGUSR1 to start the test after settling */
+bool xflag;		/* Print stats once a second. */
+
 int niceval;		/* Nice setting. */
+int rsecs;		/* Run for rsecs seconds. */
 
-int done;		/* Are we there yet? */
-int start;		/* Can we go yet? */
+volatile sig_atomic_t start;	/* Can we start? */
+volatile sig_atomic_t done;	/* Should we stop? */
 
 
 /*
@@ -74,20 +77,20 @@ void is_count(struct iset *is, int *count);
 
 #ifndef timeradd
 #define timeradd(tvp, uvp, vvp)						\
-	do {								\
-		(vvp)->tv_sec = (tvp)->tv_sec + (uvp)->tv_sec;		\
-		(vvp)->tv_usec = (tvp)->tv_usec + (uvp)->tv_usec;	\
-		if ((vvp)->tv_usec >= 1000000) {			\
-			(vvp)->tv_sec++;				\
-			(vvp)->tv_usec -= 1000000;			\
-		}							\
+do {									\
+	(vvp)->tv_sec = (tvp)->tv_sec + (uvp)->tv_sec;			\
+	(vvp)->tv_usec = (tvp)->tv_usec + (uvp)->tv_usec;		\
+	if ((vvp)->tv_usec >= 1000000) {				\
+		(vvp)->tv_sec++;					\
+		(vvp)->tv_usec -= 1000000;				\
+	}								\
 } while (0)
 #endif
 #ifndef timercmp
 #define timercmp(tvp, uvp, cmp)						\
 	(((tvp)->tv_sec == (uvp)->tv_sec) ?				\
-	    ((tvp)->tv_usec cmp (uvp)->tv_usec) :			\
-	    ((tvp)->tv_sec cmp (uvp)->tv_sec))
+	((tvp)->tv_usec cmp (uvp)->tv_usec) :				\
+	((tvp)->tv_sec cmp (uvp)->tv_sec))
 
 #endif
 #ifndef timersub
@@ -224,7 +227,8 @@ started(int trash)
 void
 usage(void)
 {
-	errx(EXIT_FAILURE, "usage: lat [-bpquv] [-c work us] [-r run seconds] [-s sleep us] [-w work loops]");
+	errx(EXIT_FAILURE, "usage: late [-bpquv] [-c work us] "
+	    "[-r run seconds] [-s sleep us] [-w work loops]");
 }
 
 int
@@ -244,40 +248,40 @@ main(int argc, char **argv)
 
 	while ((c = getopt(argc, argv, "bc:i:n:pr:s:uw:x")) != -1) {
 		switch (c) {
-			case 'b':
-				bflag = 1;
-				break;
-			case 'c':
-				cflag = 1;
-				wmicro = atoi(optarg);
-				break;
-			case 'i':
-				iflag = 1;
-				icount = atoi(optarg);
-				break;
-			case 'n':
-				niceval = atoi(optarg);
-				break;
-			case 'p':
-				pflag = 1;
-				break;
-			case 'r':
-				rsecs = atoi(optarg);
-				break;
-			case 's':
-				smicro = atoi(optarg);
-				break;
-			case 'u':
-				uflag = 1;
-				break;
-			case 'w':
-				wcount = atoi(optarg);
-				break;
-			case 'x':
-				xflag = 1;
-				break;
-			default:
-				usage();
+		case 'b':
+			bflag = true;
+			break;
+		case 'c':
+			cflag = true;
+			wmicro = atoi(optarg);
+			break;
+		case 'i':
+			iflag = true;
+			icount = atoi(optarg);
+			break;
+		case 'n':
+			niceval = atoi(optarg);
+			break;
+		case 'p':
+			pflag = true;
+			break;
+		case 'r':
+			rsecs = atoi(optarg);
+			break;
+		case 's':
+			smicro = atoi(optarg);
+			break;
+		case 'u':
+			uflag = true;
+			break;
+		case 'w':
+			wcount = atoi(optarg);
+			break;
+		case 'x':
+			xflag = true;
+			break;
+		default:
+			usage();
 		}
 	}
 	if ((cflag || niceval) && geteuid() != 0) {
@@ -301,7 +305,7 @@ main(int argc, char **argv)
 
 	if (uflag) {
 		sigset_t sigs;
-		
+
 		sigemptyset(&sigs);
 		signal(SIGUSR1, started);
 		while (start == 0)
@@ -316,16 +320,16 @@ main(int argc, char **argv)
 	if (gettimeofday(&wstime, NULL) != 0)
 		err(EXIT_FAILURE, NULL);
 
-	/* Sleep 2seconds to let the priority settle before test */
+	/* Sleep 2 seconds to let the priority settle before test */
 	if (bflag) {
 		struct timeval tv;
 
 		sleep(2);
 
 		/*
-		 * We want the amount of time that we were denied slices
-		 * before we woke up to be reflected in the wstime.  This is
-		 * why we don't just start the timer below.
+		 * We want the amount of time that we were denied slices before
+		 * we woke up to be reflected in the wstime.  This is why we
+		 * don't just start the timer below.
 		 */
 		tv.tv_sec = 2;
 		tv.tv_usec = 0;
@@ -337,7 +341,7 @@ main(int argc, char **argv)
 
 	nice(niceval);
 
-	while (!done && (!iflag || icount--)) {
+	while (done == 0 && (!iflag || icount--)) {
 		if (wmicro)
 			work_memcpy(wcount);
 		if (done == 0 && smicro)
@@ -395,7 +399,7 @@ work_memcpy_calibrate(unsigned int micro)
 		    count, rmicro);
 		printf("(%d * %d) / %d = %d\n", count, SCALE, rmicro,
 		    (count * SCALE) / rmicro);
-	} 
+	}
 
 	printf("Calculated count: %d\n", count);
 
