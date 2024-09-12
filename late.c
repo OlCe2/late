@@ -326,12 +326,18 @@ main(int argc, char **argv)
 	is_init(&work_cur_set);
 
 	if (uflag) {
-		sigset_t sigs;
+		sigset_t empty_set;
+		sigset_t usr1_set;
+		sigset_t cur_set;
 
-		sigemptyset(&sigs);
+		sigemptyset(&empty_set);
+		sigemptyset(&usr1_set);
+		sigaddset(&usr1_set, SIGUSR1);
+
+		sigprocmask(SIG_BLOCK, &usr1_set, &cur_set);
 		signal(SIGUSR1, started);
 		while (start == 0)
-			sigsuspend(&sigs);
+			sigsuspend(&cur_set);
 	}
 
 	signal(SIGINT, finished);
