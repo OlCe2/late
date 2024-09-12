@@ -59,6 +59,10 @@ int niceval;		/* Nice setting. */
 int rsecs;		/* Run for rsecs seconds. */
 unsigned int settle_secs;	/* Settle before test this many seconds */
 
+/* Calibration. */
+unsigned int leeway = 5;	/* Percents of error allowed during calibration. */
+unsigned int cmiter = 8;	/* Max number of attempts during calibration. */
+
 volatile sig_atomic_t start;	/* Can we start? */
 volatile sig_atomic_t done;	/* Should we stop? */
 
@@ -122,7 +126,7 @@ void test_latency_report(struct iset *is);
 int test_prio(void);
 
 void work_memcpy(unsigned int count);
-int work_memcpy_calibrate(unsigned int microseconds);
+void work_memcpy_calibrate(unsigned int microseconds);
 void work_memcpy_report(struct iset *is);
 
 void cpu_report(struct timeval *wtime);
@@ -233,13 +237,17 @@ started(int trash)
 void
 usage(void)
 {
-	fprintf(stderr, "usage: late [-pux] [-b settle seconds] [-c work us] "
-	    "[-i work loops] [-n niceval] [-r run seconds] [-s sleep us] "
-	    "[-w work iterations]\n"
+	fprintf(stderr, "usage: late [-pux] [-a max calibration attempts] "
+	    "[-b settle seconds] [-c work us] [-i work loops]\n"
+	    "       [-l calibration leeway percents] [-n niceval] "
+	    "[-r run seconds] [-s sleep us] [-w work iterations]\n"
 	    "Options:\n"
+	    "-a: Max calibration attempts (=feedback loop iterations; "
+	    "default: 8).\n"
 	    "-b: Wait before the test to let priority settle.\n"
 	    "-c: Calibrate: Find work iterations to reach the passed duration.\n"
 	    "-i: Number of work + sleep loops (not specified: Infinite).\n"
+	    "-l: Leeway percents for the calibration (default: 5).\n"
 	    "-n: Renice to the passed value (may need privilege)."
 	    "-p: Print the current process' priority every second.\n"
 	    "-r: Stop running (work + sleep) when duration reached.\n"
@@ -279,8 +287,11 @@ main(int argc, char **argv)
 	smicro = 1000000;	/* 1 second default */
 	wmicro = 1000;		/* 1ms default */
 
-	while ((c = getopt(argc, argv, "b:c:i:n:pr:s:uw:x")) != -1) {
+	while ((c = getopt(argc, argv, "a:b:c:i:l:n:pr:s:uw:x")) != -1) {
 		switch (c) {
+		case 'a':
+			cmiter = str_to_u(optarg);
+			break;
 		case 'b':
 			settle_secs = str_to_u(optarg);
 			break;
@@ -291,6 +302,12 @@ main(int argc, char **argv)
 		case 'i':
 			iflag = true;
 			icount = atoi(optarg);
+			break;
+		case 'l':
+			leeway = str_to_u(optarg);
+			if (leeway > 100)
+				errx(EXIT_FAILURE,
+				    "Leeway must be a number of percents.");
 			break;
 		case 'n':
 			nflag = true;
@@ -416,23 +433,30 @@ main(int argc, char **argv)
 	exit(EXIT_SUCCESS);
 }
 
-int
+void
 work_memcpy_calibrate(unsigned int micro)
 {
 	struct timeval stime;	/* Start time */
 	struct timeval etime;	/* End time */
 	unsigned int rmicro;		/* Current run time */
 	unsigned int count;
+	unsigned int niter;
 
 	rmicro = 0;
-	count = 1000;
+	count = 10000;
+	niter = 0;
 
-	while ((rmicro < ((micro / 10) * 9) ||
-	    rmicro > ((micro / 10) * 11))) {
-
-#define	SCALE	100
-		if (rmicro)
-			count = (((count * SCALE) / rmicro) * micro) / SCALE;
+#define	SCALE		128
+	if (micro * SCALE * 100 <= micro)
+		errx(EXIT_FAILURE, "Too long duration requested.");
+	while (rmicro == 0 || rmicro < (micro * (100 - leeway) *
+	    (SCALE - 1) / (SCALE * 100)) ||
+	    rmicro > (micro * (100 + leeway) *
+	    (SCALE + 1) / (SCALE * 100))) {
+		if (niter++ == cmiter)
+			errx(EXIT_FAILURE,
+			    "Reached calibration attempts limit (%u). "
+			    "Change with '-a', and/or use '-l'.", cmiter);
 
 		if (gettimeofday(&stime, NULL) != 0)
 			err(EXIT_FAILURE, "gettimeofday");
@@ -445,15 +469,36 @@ work_memcpy_calibrate(unsigned int micro)
 		/* Figure out how long we worked for */
 		timersub(&etime, &stime, &etime);
 		rmicro = (etime.tv_sec * 1000000) + etime.tv_usec;
-		printf("work_memcpy %u takes %u microseconds.\n",
+		printf("%u iterations took %u microseconds.\n",
 		    count, rmicro);
-		printf("(%u * %u) / %u = %u\n", count, SCALE, rmicro,
-		    (count * SCALE) / rmicro);
-	}
 
+		if (rmicro == 0) {
+			unsigned int new_count = 2 * count;
+
+			if (count >= UINT_MAX / SCALE)
+				goto too_many_iter;
+			if (new_count * SCALE <= count)
+				count = UINT_MAX / SCALE;
+			else
+				count = new_count;
+		} else {
+			printf("(%u * %u) / %u = %u\n", count, SCALE,
+			    rmicro, (count * SCALE) / rmicro);
+			count = (((count * SCALE) / rmicro) * micro) / SCALE;
+			if (count == 0)
+				errx(EXIT_FAILURE,
+				    "Requested duration too short.");
+			if (count >= UINT_MAX / SCALE)
+				goto too_many_iter;
+		}
+	};
+
+	printf("Calibration succeeded after %u iterations.\n", niter);
 	printf("Calculated count: %u\n", count);
-
-	return (count);
+	return;
+too_many_iter:
+	errx(EXIT_FAILURE,
+	    "Calibration failed, too many iterations would be needed.");
 }
 
 void
