@@ -313,7 +313,6 @@ main(int argc, char **argv)
 	}
 
 	signal(SIGINT, finished);
-	signal(SIGALRM, finished);
 	signal(SIGALRM, sigalarm);
 
 	/* Record the time that we start, for the total work time */
