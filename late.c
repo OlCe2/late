@@ -30,7 +30,6 @@
 #include <sys/rtprio.h>
 #endif
 #include <sys/time.h>
-#include <sys/timespec.h>
 
 #include <err.h>
 #ifndef __FreeBSD__
@@ -42,6 +41,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 
