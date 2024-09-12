@@ -32,6 +32,8 @@
 #include <sys/time.h>
 
 #include <err.h>
+#include <errno.h>
+#include <limits.h>
 #ifndef __FreeBSD__
 #include <sched.h>
 #endif
@@ -242,6 +244,19 @@ usage(void)
 	    "-w: Number of iterations forming a unit of work.\n"
 	    "-x: Print work and latency statistics every second.\n");
 	exit(EXIT_FAILURE);
+}
+
+static unsigned int
+str_to_u(const char *str)
+{
+	char *endptr;
+	unsigned long ul;
+
+	errno = 0;
+	ul = strtoul(str, &endptr, 0);
+	if (errno != 0 || endptr == str || *endptr != 0 || ul > UINT_MAX)
+		errx(EXIT_FAILURE, "Bad number trying to parse '%s'.", str);
+	return (ul);
 }
 
 int
