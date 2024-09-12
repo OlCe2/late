@@ -227,8 +227,20 @@ started(int trash)
 void
 usage(void)
 {
-	errx(EXIT_FAILURE, "usage: late [-bpquv] [-c work us] "
-	    "[-r run seconds] [-s sleep us] [-w work loops]");
+	fprintf(stderr, "usage: late [-bpux] [-c work us] [-i work loops] "
+	    "[-n niceval] [-r run seconds] [-s sleep us] [-w work iterations]\n"
+	    "Options:\n"
+	    "-b: Wait for 2 seconds before the test to let priority settle.\n"
+	    "-c: Calibrate: Find work iterations to reach the passed duration.\n"
+	    "-i: Number of work + sleep loops (not specified: Infinite).\n"
+	    "-n: Renice to the passed value (may need privilege)."
+	    "-p: Print the current process' priority every second.\n"
+	    "-r: Stop running (work + sleep) when duration reached.\n"
+	    "-s: Duration of sleep (in us; default: 1s).\n"
+	    "-u: Wait for SIGUSR1 to start (work + sleep) loops.\n"
+	    "-w: Number of iterations forming a unit of work.\n"
+	    "-x: Print work and latency statistics every second.\n");
+	exit(EXIT_FAILURE);
 }
 
 int
