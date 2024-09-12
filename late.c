@@ -48,6 +48,7 @@
 bool bflag;		/* Settle before test */
 bool cflag;		/* Calibrate ? */
 bool iflag;		/* Iterate a specific number of times? */
+bool nflag;		/* Was '-n' specified? */
 bool pflag;		/* Print priority? */
 bool uflag;		/* Use SIGUSR1 to start the test after settling */
 bool xflag;		/* Print stats once a second. */
@@ -254,6 +255,7 @@ main(int argc, char **argv)
 	int wcount;	/* work count */
 	int icount;	/* Iteration count. */
 	int c;
+	int error;
 
 	smicro = 1000000;	/* 1 second default */
 	wmicro = 1000;		/* 1ms default */
@@ -272,6 +274,7 @@ main(int argc, char **argv)
 			icount = atoi(optarg);
 			break;
 		case 'n':
+			nflag = true;
 			niceval = atoi(optarg);
 			break;
 		case 'p':
@@ -296,13 +299,20 @@ main(int argc, char **argv)
 			usage();
 		}
 	}
-	if ((cflag || niceval) && geteuid() != 0) {
-		printf("%s must be run as root with the c or n options set!\n",
-		    argv[0]);
-		exit(EXIT_FAILURE);
-	}
 	if (cflag) {
-		nice(-20);
+#ifdef __FreeBSD__
+		struct rtprio rtp = { .type = RTP_PRIO_FIFO,
+				      .prio = RTP_PRIO_MAX };
+
+		error = rtprio(RTP_SET, 0, &rtp);
+		if (error != 0)
+			error = setpriority(PRIO_PROCESS, 0, PRIO_MIN);
+#else
+		error = setpriority(PRIO_PROCESS, 0, PRIO_MIN);
+#endif
+		if (error != 0)
+			warnx("Could not increase priority, "
+			    "calibration results may be less reliable.");
 		work_memcpy_calibrate(wmicro);
 		exit(EXIT_SUCCESS);
 	}
@@ -350,7 +360,11 @@ main(int argc, char **argv)
 	if (xflag || pflag)
 		alarm(1);
 
-	nice(niceval);
+	if (nflag) {
+		error = setpriority(PRIO_PROCESS, 0, niceval);
+		if (error != 0)
+			err(EXIT_FAILURE, "Cannot set the nice value.");
+	}
 
 	while (done == 0 && (!iflag || icount--)) {
 		if (wmicro)
