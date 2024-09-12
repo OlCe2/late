@@ -1,6 +1,13 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause
+ *
  * Copyright (c) 2002-2003, Jeffrey Roberson <jeff@freebsd.org>
  * All rights reserved.
+ * Copyright (c) 2024 The FreeBSD Foundation
+ *
+ * Portions of this software were developed by Olivier Certner
+ * <olce.freebsd@certner.fr> at Kumacom SARL under sponsorship from the FreeBSD
+ * Foundation.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
