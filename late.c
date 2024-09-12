@@ -345,7 +345,7 @@ main(int argc, char **argv)
 
 	/* Record the time that we start, for the total work time */
 	if (gettimeofday(&wstime, NULL) != 0)
-		err(EXIT_FAILURE, NULL);
+		err(EXIT_FAILURE, "gettimeofday");
 
 	/* Sleep 2 seconds to let the priority settle before test */
 	if (bflag) {
@@ -386,7 +386,7 @@ main(int argc, char **argv)
 	}
 	/* Compute the total working time */
 	if (gettimeofday(&wetime, NULL) != 0)
-		err(EXIT_FAILURE, NULL);
+		err(EXIT_FAILURE, "gettimeofday");
 	timersub(&wetime, &wstime, &wetime);
 
 	/* Generate reports */
@@ -416,12 +416,12 @@ work_memcpy_calibrate(unsigned int micro)
 			count = (((count * SCALE) / rmicro) * micro) / SCALE;
 
 		if (gettimeofday(&stime, NULL) != 0)
-			err(EXIT_FAILURE, NULL);
+			err(EXIT_FAILURE, "gettimeofday");
 
 		work_memcpy(count);
 
 		if (gettimeofday(&etime, NULL) != 0)
-			err(EXIT_FAILURE, NULL);
+			err(EXIT_FAILURE, "gettimeofday");
 
 		/* Figure out how long we worked for */
 		timersub(&etime, &stime, &etime);
@@ -447,7 +447,7 @@ work_memcpy(int count)
 	char buf1[4096];
 
 	if (gettimeofday(&stime, NULL) != 0)
-		err(EXIT_FAILURE, NULL);
+		err(EXIT_FAILURE, "gettimeofday");
 
 	for (; count > 0; count--) {
 		memcpy(buf0, buf1, 4096);
@@ -455,7 +455,7 @@ work_memcpy(int count)
 	}
 
 	if (gettimeofday(&etime, NULL) != 0)
-		err(EXIT_FAILURE, NULL);
+		err(EXIT_FAILURE, "gettimeofday");
 
 	/* Figure out how long we ran for */
 	timersub(&etime, &stime, &dtime);
@@ -493,7 +493,7 @@ cpu_report(struct timeval *wtime)
 	double pct;
 
 	if (getrusage(RUSAGE_SELF, &ru) != 0)
-		err(EXIT_FAILURE, NULL);
+		err(EXIT_FAILURE, "getrusage");
 
 	printf("CPU Stats:\n");
 	tv_print("\tReal Time:\t", wtime);
@@ -525,14 +525,14 @@ test_latency(unsigned int microseconds)
 	struct timespec ts;
 
 	if (gettimeofday(&stime, NULL) != 0)
-		err(EXIT_FAILURE, NULL);
+		err(EXIT_FAILURE, "gettimeofday");
 
 	ts.tv_sec = microseconds / 1000000;
 	ts.tv_nsec = (microseconds - (ts.tv_sec * 1000000)) * 1000;
 	while (nanosleep(&ts, &ts) != 0);
 
 	if (gettimeofday(&etime, NULL) != 0)
-		err(EXIT_FAILURE, NULL);
+		err(EXIT_FAILURE, "gettimeofday");
 
 	/* Figure out how long we slept for */
 	timersub(&etime, &stime, &dtime);
@@ -576,14 +576,14 @@ test_prio()
 	struct rtprio rtp;
 
 	if (rtprio(RTP_LOOKUP, 0, &rtp) != 0)
-		err(EXIT_FAILURE, NULL);
+		err(EXIT_FAILURE, "rtprio");
 
 	priority = rtp.prio;
 #else
 	struct sched_param sp;
 
 	if (sched_getparam(0, &sp) != 0)
-		err(EXIT_FAILURE, NULL);
+		err(EXIT_FAILURE, "sched_getparam");
 
 	priority = sp.sched_priority;
 #endif
