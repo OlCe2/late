@@ -348,6 +348,10 @@ main(int argc, char **argv)
 		    "Expected work iterations (through '-w'; else "
 		    "calibrate with '-c').");
 	if (cflag) {
+		if (wmicro == 0)
+			errx(EXIT_FAILURE,
+			    "Duration for calibration can't be 0.");
+
 #ifdef __FreeBSD__
 		struct rtprio rtp = { .type = RTP_PRIO_FIFO,
 				      .prio = RTP_PRIO_MAX };
