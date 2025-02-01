@@ -255,7 +255,7 @@ usage(void)
 	    "-c: Calibrate: Find work iterations to reach the passed duration.\n"
 	    "-i: Number of work + sleep loops (not specified: Infinite).\n"
 	    "-l: Leeway percents for the calibration (default: 5).\n"
-	    "-n: Renice to the passed value (may need privilege)."
+	    "-n: Renice to the passed value (may need privilege).\n"
 	    "-p: Print the current process' priority every second.\n"
 	    "-r: Stop running (work + sleep) when duration reached.\n"
 	    "-s: Duration of sleep (in us; default: 1s).\n"
