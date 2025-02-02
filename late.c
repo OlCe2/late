@@ -40,6 +40,7 @@
 
 #include <err.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <limits.h>
 #ifndef __FreeBSD__
 #include <sched.h>
@@ -133,7 +134,7 @@ void test_latency_report(struct iset *is);
 int test_prio(void);
 
 void work_memcpy(unsigned int count);
-void work_memcpy_calibrate(unsigned int microseconds);
+void work_memcpy_calibrate(uint64_t microseconds);
 void work_memcpy_report(struct iset *is);
 
 void cpu_report(struct timeval *wtime);
@@ -450,11 +451,11 @@ main(int argc, char **argv)
 }
 
 void
-work_memcpy_calibrate(unsigned int micro)
+work_memcpy_calibrate(uint64_t micro)
 {
 	struct timeval stime;	/* Start time */
 	struct timeval etime;	/* End time */
-	unsigned int rmicro;		/* Current run time */
+	uint64_t rmicro;	/* Current run time */
 	unsigned int count;
 	unsigned int niter;
 
@@ -462,13 +463,21 @@ work_memcpy_calibrate(unsigned int micro)
 	count = 10000;
 	niter = 0;
 
-#define	SCALE		128
-	if (micro * SCALE * 100 <= micro)
+#define	SCALE		1000000
+	/*
+	 * Test overflow with 200 instead of 100 as the formulas below involve
+	 * 'rmicro', which may temporarily exceed 'micro' (but not in the
+	 * initial ramping up phase if 'rmicro' is big enough).  The factor
+	 * 2 should be way more than enough even if the performance is very
+	 * jittery.
+	 */
+	if (micro * SCALE * (200 + leeway) <= micro)
 		errx(EXIT_FAILURE, "Too long duration requested.");
-	while (rmicro == 0 || rmicro < (micro * (100 - leeway) *
-	    (SCALE - 1) / (SCALE * 100)) ||
-	    rmicro > (micro * (100 + leeway) *
-	    (SCALE + 1) / (SCALE * 100))) {
+	while (rmicro == 0 ||
+	    rmicro * SCALE <= micro * (100 - leeway) * SCALE / 100 ||
+	    rmicro * SCALE > micro * (100 + leeway) * SCALE / 100) {
+		unsigned int new_count;
+
 		if (niter++ == cmiter)
 			errx(EXIT_FAILURE,
 			    "Reached calibration attempts limit (%u). "
@@ -484,31 +493,39 @@ work_memcpy_calibrate(unsigned int micro)
 
 		/* Figure out how long we worked for */
 		timersub(&etime, &stime, &etime);
-		rmicro = (etime.tv_sec * 1000000) + etime.tv_usec;
-		printf("%u iterations took %u microseconds.\n",
+		rmicro = ((uint64_t)etime.tv_sec * 1000000) +
+		    (uint64_t)etime.tv_usec;
+		printf("%u iterations took %" PRIu64 " microseconds.\n",
 		    count, rmicro);
 
 		if (rmicro == 0) {
-			unsigned int new_count = 2 * count;
-
-			if (count >= UINT_MAX / SCALE)
+			new_count = 2 * count;
+			if (new_count <= count)
 				goto too_many_iter;
-			if (new_count * SCALE <= count)
-				count = UINT_MAX / SCALE;
-			else
-				count = new_count;
 		} else {
-			printf("(%u * %u) / %u = %u\n", count, SCALE,
-			    rmicro, (count * SCALE) / rmicro);
-			count = (((count * SCALE) / rmicro) * micro) / SCALE;
-			if (count == 0)
+			uint64_t scaled_factor;
+
+			scaled_factor = micro * SCALE / rmicro;
+			printf("Computed factor: %" PRIu64 "/%u\n",
+			    scaled_factor, SCALE);
+			new_count = scaled_factor * count / SCALE;
+			if (new_count == 0)
 				errx(EXIT_FAILURE,
 				    "Requested duration too short.");
-			if (count >= UINT_MAX / SCALE)
+			if (scaled_factor > SCALE && new_count < count)
 				goto too_many_iter;
+			if (new_count == count)
+				errx(EXIT_FAILURE,
+				    "Not enough precision, "
+				    "please recompile with increased SCALE.");
 		}
-	};
+		count = new_count;
+	}
 
+	if (rmicro * SCALE < SCALE)
+		errx(EXIT_FAILURE,
+		    "Real duration caused overflow. "
+		    "INT_MEMCPY_ITERATIONS too high?");
 	printf("Calibration succeeded after %u iterations.\n", niter);
 	printf("Calculated count: %u\n", count);
 	return;
