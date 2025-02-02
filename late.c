@@ -68,7 +68,8 @@ int rsecs;		/* Run for rsecs seconds. */
 unsigned int settle_secs;	/* Settle before test this many seconds */
 
 /* Calibration. */
-unsigned int leeway = 5;	/* Percents of error allowed during calibration. */
+/* Tenths of percent of error allowed during calibration. */
+unsigned int leeway = 10;	/* (Default is thus 1%.) */
 unsigned int cmiter = 8;	/* Max number of attempts during calibration. */
 
 volatile sig_atomic_t start;	/* Can we start? */
@@ -247,7 +248,7 @@ usage(void)
 {
 	fprintf(stderr, "usage: late [-pux] [-a max calibration attempts] "
 	    "[-b settle seconds] [-c work us] [-i work loops]\n"
-	    "       [-l calibration leeway percents] [-n niceval] "
+	    "       [-l calibration leeway tenths of percent] [-n niceval] "
 	    "[-r run seconds] [-s sleep us] [-w work iterations]\n"
 	    "Options:\n"
 	    "-a: Max calibration attempts (=feedback loop iterations; "
@@ -255,7 +256,7 @@ usage(void)
 	    "-b: Wait before the test to let priority settle.\n"
 	    "-c: Calibrate: Find work iterations to reach the passed duration.\n"
 	    "-i: Number of work + sleep loops (not specified: Infinite).\n"
-	    "-l: Leeway percents for the calibration (default: 5).\n"
+	    "-l: Calibration leeway in tenths of percent (default: 10).\n"
 	    "-n: Renice to the passed value (may need privilege).\n"
 	    "-p: Print the current process' priority every second.\n"
 	    "-r: Stop running (work + sleep) when duration reached.\n"
@@ -313,9 +314,9 @@ main(int argc, char **argv)
 			break;
 		case 'l':
 			leeway = str_to_u(optarg);
-			if (leeway > 100)
+			if (leeway > 1000)
 				errx(EXIT_FAILURE,
-				    "Leeway must be a number of percents.");
+				    "Leeway must be below 1000.");
 			break;
 		case 'n':
 			nflag = true;
@@ -465,17 +466,17 @@ work_memcpy_calibrate(uint64_t micro)
 
 #define	SCALE		1000000
 	/*
-	 * Test overflow with 200 instead of 100 as the formulas below involve
+	 * Test overflow with 2000 instead of 1000 as the formulas below involve
 	 * 'rmicro', which may temporarily exceed 'micro' (but not in the
 	 * initial ramping up phase if 'rmicro' is big enough).  The factor
 	 * 2 should be way more than enough even if the performance is very
 	 * jittery.
 	 */
-	if (micro * SCALE * (200 + leeway) <= micro)
+	if (micro * SCALE * (2000 + leeway) <= micro)
 		errx(EXIT_FAILURE, "Too long duration requested.");
 	while (rmicro == 0 ||
-	    rmicro * SCALE <= micro * (100 - leeway) * SCALE / 100 ||
-	    rmicro * SCALE > micro * (100 + leeway) * SCALE / 100) {
+	    rmicro * SCALE <= micro * (1000 - leeway) * SCALE / 1000 ||
+	    rmicro * SCALE > micro * (1000 + leeway) * SCALE / 1000) {
 		unsigned int new_count;
 
 		if (niter++ == cmiter)
