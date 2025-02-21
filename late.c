@@ -255,7 +255,7 @@ usage(void)
 	    "default: 8).\n"
 	    "-b: Wait before the test to let priority settle.\n"
 	    "-c: Calibrate: Find work iterations to reach the passed duration.\n"
-	    "-i: Number of work + sleep loops (not specified: Infinite).\n"
+	    "-i: Number of (work + sleep) loops (not specified: Infinite).\n"
 	    "-l: Calibration leeway in tenths of percent (default: 10).\n"
 	    "-n: Renice to the passed value (may need privilege).\n"
 	    "-p: Print the current process' priority every second.\n"
