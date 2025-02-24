@@ -12,7 +12,7 @@ SLEEP_US=$4
 RUN_SEC=$5
 NICE=$6
 
-LATE_CMD="./late -u -b -n $NICE -r$RUN_SEC -w $WORK_COUNT -s $SLEEP_US"
+LATE_CMD="./late -u -b 2 -n $NICE -r$RUN_SEC -w $WORK_COUNT -s $SLEEP_US"
 
 mkdir $DIRECTORY
 
