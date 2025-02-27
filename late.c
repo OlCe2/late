@@ -141,7 +141,7 @@ void work_memcpy_report(struct iset *is);
 void cpu_report(struct timeval *elapsed);
 
 void finished(int trash);
-void usage(void);
+void usage(int rc);
 
 
 void
@@ -244,9 +244,9 @@ started(int trash)
 }
 
 void
-usage(void)
+usage(int rc)
 {
-	fprintf(stderr, "usage: late [-pux] [-a max calibration attempts] "
+	fprintf(stderr, "usage: late [-hpux] [-a max calibration attempts] "
 	    "[-b settle seconds] [-c work us] [-i work loops]\n"
 	    "       [-l calibration leeway tenths of percent] [-n niceval] "
 	    "[-r run seconds] [-s sleep us] [-w work iterations]\n"
@@ -258,6 +258,7 @@ usage(void)
 	    "-i: Number of (work + sleep) loops (not specified: Infinite; "
 	    "see also '-r').\n"
 	    "-l: Calibration leeway in tenths of percent (default: 10).\n"
+	    "-h: Print this usage information.\n"
 	    "-n: Renice to the passed value (may need privilege).\n"
 	    "-p: Print the current process' priority every second.\n"
 	    "-r: Stop running (work + sleep) loops after duration reached "
@@ -300,7 +301,7 @@ main(int argc, char **argv)
 
 	smicro = 1000000;	/* 1 second default */
 
-	while ((c = getopt(argc, argv, "a:b:c:i:l:n:pr:s:uw:x")) != -1) {
+	while ((c = getopt(argc, argv, "a:b:c:hi:l:n:pr:s:uw:x")) != -1) {
 		switch (c) {
 		case 'a':
 			cmiter = str_to_u(optarg);
@@ -311,6 +312,10 @@ main(int argc, char **argv)
 		case 'c':
 			cflag = true;
 			wmicro = str_to_u(optarg);
+			break;
+		case 'h':
+			usage(EXIT_SUCCESS);
+			/* NOTREACHED */
 			break;
 		case 'i':
 			iflag = true;
@@ -346,7 +351,8 @@ main(int argc, char **argv)
 			xflag = true;
 			break;
 		default:
-			usage();
+			usage(EXIT_FAILURE);
+			/* NOTREACHED */
 		}
 	}
 	if (!cflag && !wflag)
