@@ -138,7 +138,7 @@ void work_memcpy(unsigned int count);
 void work_memcpy_calibrate(uint64_t microseconds);
 void work_memcpy_report(struct iset *is);
 
-void cpu_report(struct timeval *wtime);
+void cpu_report(struct timeval *elapsed);
 
 void finished(int trash);
 void usage(void);
@@ -288,8 +288,7 @@ str_to_u(const char *str)
 int
 main(int argc, char **argv)
 {
-	struct timeval wetime;	/* Work end time */
-	struct timeval wstime;	/* Work start time */
+	struct timeval stime, etime;	/* Real start and end time */
 	struct timeval curtime;	/* Current time. */
 	int smicro;	/* Microseconds of sleep */
 	bool wflag = false;
@@ -403,7 +402,7 @@ main(int argc, char **argv)
 	signal(SIGALRM, sigalarm);
 
 	/* Record the time that we start, for the total work time */
-	if (gettimeofday(&wstime, NULL) != 0)
+	if (gettimeofday(&stime, NULL) != 0)
 		err(EXIT_FAILURE, "gettimeofday");
 
 	/* Sleep to let the priority settle before test */
@@ -419,7 +418,7 @@ main(int argc, char **argv)
 		 */
 		tv.tv_sec = settle_secs;
 		tv.tv_usec = 0;
-		timeradd(&wstime, &tv, &wstime);
+		timeradd(&stime, &tv, &stime);
 	}
 
 	if (xflag || pflag)
@@ -439,19 +438,19 @@ main(int argc, char **argv)
 		if (rsecs) {
 			gettimeofday(&curtime, NULL);
 			curtime.tv_sec -= rsecs;
-			if (timercmp(&wstime, &curtime, <))
+			if (timercmp(&stime, &curtime, <))
 				break;
 		}
 	}
 	/* Compute the total working time */
-	if (gettimeofday(&wetime, NULL) != 0)
+	if (gettimeofday(&etime, NULL) != 0)
 		err(EXIT_FAILURE, "gettimeofday");
-	timersub(&wetime, &wstime, &wetime);
+	timersub(&etime, &stime, &etime);
 
 	/* Generate reports */
 	test_latency_report(&lat_set);
 	work_memcpy_report(&work_set);
-	cpu_report(&wetime);
+	cpu_report(&etime);
 
 	exit(EXIT_SUCCESS);
 }
@@ -588,20 +587,20 @@ work_memcpy_report(struct iset *is)
 }
 
 void
-cpu_report(struct timeval *wtime)
+cpu_report(struct timeval *elapsed)
 {
 	struct timeval cputime;
 	struct timeval tv;
 	struct rusage ru;
 	uint64_t rmicro;
-	uint64_t wmicro;
+	uint64_t emicro;
 	double pct;
 
 	if (getrusage(RUSAGE_SELF, &ru) != 0)
 		err(EXIT_FAILURE, "getrusage");
 
 	printf("CPU Stats:\n");
-	tv_print("\tReal Time:\t", wtime);
+	tv_print("\tReal Time:\t", elapsed);
 
 	timeradd(&ru.ru_utime, &ru.ru_stime, &cputime);
 	tv_print("\tCPU Time:\t", &cputime);
@@ -610,8 +609,8 @@ cpu_report(struct timeval *wtime)
 	tv_print("\tSleep Time:\t", &tv);
 
 	rmicro = (cputime.tv_sec * 1000000) + cputime.tv_usec;
-	wmicro = (wtime->tv_sec * 1000000) + wtime->tv_usec;
-	pct = ((double)rmicro / (double)wmicro) * 100;
+	emicro = (elapsed->tv_sec * 1000000) + elapsed->tv_usec;
+	pct = ((double)rmicro / (double)emicro) * 100;
 
 	printf("\t%%CPU:\t\t%.0f\n", pct);
 	printf("\tFinal Priority:\t%d\n", test_prio());
