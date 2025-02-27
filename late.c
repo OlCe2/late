@@ -359,6 +359,9 @@ main(int argc, char **argv)
 		errx(EXIT_FAILURE,
 		    "Expecting work iterations (through '-w'; else "
 		    "calibrate with '-c'; see usage with '-h').");
+	else if (cflag && wflag)
+		errx(EXIT_FAILURE,
+		    "'-w' and '-c' are mutually exclusive (see '-h').");
 	if (cflag) {
 		if (wmicro == 0)
 			errx(EXIT_FAILURE,
