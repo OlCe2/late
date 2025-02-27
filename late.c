@@ -357,8 +357,8 @@ main(int argc, char **argv)
 	}
 	if (!cflag && !wflag)
 		errx(EXIT_FAILURE,
-		    "Expected work iterations (through '-w'; else "
-		    "calibrate with '-c').");
+		    "Expecting work iterations (through '-w'; else "
+		    "calibrate with '-c'; see usage with '-h').");
 	if (cflag) {
 		if (wmicro == 0)
 			errx(EXIT_FAILURE,
