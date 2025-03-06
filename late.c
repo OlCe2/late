@@ -207,7 +207,7 @@ is_total(struct iset *is, struct timeval *tv)
 void
 tv_print(char *pre, struct timeval *tv)
 {
-	printf("%s%ld.%06ld\n", pre, tv->tv_sec, tv->tv_usec);
+	printf("%s%ld.%06lds\n", pre, tv->tv_sec, tv->tv_usec);
 }
 
 
