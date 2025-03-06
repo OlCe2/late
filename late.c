@@ -639,7 +639,7 @@ cpu_report(struct timeval *elapsed)
 	emicro = (elapsed->tv_sec * 1000000) + elapsed->tv_usec;
 	pct = ((double)rmicro / (double)emicro) * 100;
 
-	printf("\t%%CPU:\t\t%.0f\n", pct);
+	printf("\t%%CPU:\t\t%.2lf\n", pct);
 	printf("\tFinal Priority:\t%d\n", test_prio());
 	printf("\tNice setting:\t%d\n", niceval);
 	printf("\tVoluntary Ctx Switch:\t%ld\n", ru.ru_nvcsw);
