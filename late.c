@@ -84,7 +84,7 @@ volatile sig_atomic_t done;	/* Should we stop? */
 struct iset {
 	struct timeval	is_max;		/* Maximum timeval for this set. */
 	struct timeval	is_total;	/* Total time accumulated. */
-	int	is_count;		/* Number of recorded intervals. */
+	unsigned int	is_count;	/* Number of recorded intervals. */
 };
 
 void is_init(struct iset *is);
@@ -92,7 +92,7 @@ void is_add(struct iset *is, struct timeval *tv);
 void is_average(struct iset *is, struct timeval *tv);
 void is_max(struct iset *is, struct timeval *tv);
 void is_total(struct iset *is, struct timeval *tv);
-void is_count(struct iset *is, int *count);
+void is_count(struct iset *is, unsigned int *count);
 
 #ifndef timeradd
 #define timeradd(tvp, uvp, vvp)						\
@@ -153,10 +153,13 @@ is_init(struct iset *is)
 void
 is_add(struct iset *is, struct timeval *tv)
 {
-	is->is_count++;
+	/* Don't update the count and total time on overflow. */
+	if (is->is_count != UINT_MAX) {
+		is->is_count++;
 
-	/* Add this to the total */
-	timeradd(&is->is_total, tv, &is->is_total);
+		/* Add this to the total */
+		timeradd(&is->is_total, tv, &is->is_total);
+	}
 
 	/* See if this value exceeds the max. */
 	if (timercmp(tv, &is->is_max, >))
@@ -190,7 +193,7 @@ is_max(struct iset *is, struct timeval *tv)
 }
 
 void
-is_count(struct iset *is, int *count)
+is_count(struct iset *is, unsigned int *count)
 {
 	*count = is->is_count;
 }
@@ -596,7 +599,7 @@ void
 work_memcpy_report(struct iset *is)
 {
 	struct timeval tv;
-	int count;
+	unsigned int count;
 
 	printf("Time executing work loop:\n");
 
@@ -607,7 +610,7 @@ work_memcpy_report(struct iset *is)
 	tv_print("\tAverage:\t", &tv);
 
 	is_count(is, &count);
-	printf("\tWork Count:\t%d\n", count);
+	printf("\tWork Count:\t%u\n", count);
 }
 
 void
@@ -682,7 +685,7 @@ void
 test_latency_report(struct iset *is)
 {
 	struct timeval tv;
-	int count;
+	unsigned int count;
 
 	printf("Sleep resumption latency:\n");
 
@@ -693,7 +696,7 @@ test_latency_report(struct iset *is)
 	tv_print("\tAverage:\t", &tv);
 
 	is_count(is, &count);
-	printf("\tSleep Count:\t%d\n", count);
+	printf("\tSleep Count:\t%u\n", count);
 }
 
 int
