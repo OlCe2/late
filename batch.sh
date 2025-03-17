@@ -1,12 +1,12 @@
 #!/bin/sh
 
 if [ $# -lt 5 ]; then
-	echo "Usage: " $0 "<output dir> <late iterations> <work count> <sleep us> <run sec> <work iterations>"
+	echo "Usage: " $0 "<output dir> <parallel> <work count> <sleep us> <run sec> <work iterations>"
 	exit 1
 fi
 
 DIRECTORY=$1
-ITERATIONS=$2
+PARALLEL=$2
 WORK_COUNT=$3
 SLEEP_US=$4
 RUN_SEC=$5
@@ -24,7 +24,7 @@ fi
 mkdir $DIRECTORY
 
 i=0
-while [ $i -lt $ITERATIONS ]; do
+while [ $i -lt $PARALLEL ]; do
 	$LATE_CMD > $DIRECTORY/$i &
 	i=`expr $i + 1`
 	pids=`echo $pids  $!`
