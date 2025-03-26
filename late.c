@@ -437,7 +437,6 @@ main(int argc, char **argv)
 	}
 
 	signal(SIGINT, finished);
-	signal(SIGALRM, sigalarm);
 
 	/* Record the time that we start, for the total work time */
 	if (gettimeofday(&stime, NULL) != 0)
@@ -459,8 +458,10 @@ main(int argc, char **argv)
 		timeradd(&stime, &tv, &stime);
 	}
 
-	if (xflag || pflag)
+	if (xflag || pflag) {
+		signal(SIGALRM, sigalarm);
 		alarm(1);
+	}
 
 	if (nflag) {
 		error = setpriority(PRIO_PROCESS, 0, niceval);
