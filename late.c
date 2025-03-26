@@ -315,8 +315,17 @@ main(int argc, char **argv)
 	int niceval;		/* Nice setting. */
 	/* Wait for SIGUSR1 to start the test. */
 	bool uflag = false;
+	sigset_t usr1_sset, initial_sset;
 	int c;
 	int error;
+
+	/*
+	 * Block SIGUSR1 immediately, to minimize the risk of being killed by it
+	 * if we later have to handle it.
+	 */
+	sigemptyset(&usr1_sset);
+	sigaddset(&usr1_sset, SIGUSR1);
+	sigprocmask(SIG_BLOCK, &usr1_sset, &initial_sset);
 
 	while ((c = getopt(argc, argv, "a:b:c:hi:l:n:pr:s:uw:x")) != -1) {
 		switch (c) {
@@ -421,19 +430,12 @@ main(int argc, char **argv)
 	is_init(&work_cur_set);
 
 	if (uflag) {
-		sigset_t empty_set;
-		sigset_t usr1_set;
-		sigset_t cur_set;
-
-		sigemptyset(&empty_set);
-		sigemptyset(&usr1_set);
-		sigaddset(&usr1_set, SIGUSR1);
-
-		sigprocmask(SIG_BLOCK, &usr1_set, &cur_set);
 		signal(SIGUSR1, started);
 		while (start == 0)
-			sigsuspend(&cur_set);
-	}
+			sigsuspend(&initial_sset);
+	} else
+		/* Let's die on SIGUSR1 in this case. */
+		sigprocmask(SIG_SETMASK, &initial_sset, NULL);
 
 	signal(SIGINT, finished);
 
