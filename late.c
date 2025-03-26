@@ -65,7 +65,6 @@ bool uflag;		/* Use SIGUSR1 to start the test after settling */
 bool xflag;		/* Print stats once a second. */
 
 int niceval;		/* Nice setting. */
-int rsecs;		/* Run for rsecs seconds. */
 unsigned int settle_secs;	/* Settle before test this many seconds */
 
 /* Calibration. */
@@ -311,11 +310,12 @@ main(int argc, char **argv)
 	struct timeval stime, etime;	/* Real start and end time */
 	struct timeval curtime;	/* Current time. */
 	bool sflag = false;
-	int smicro;	/* Microseconds of sleep */
+	unsigned int smicro;	/* Microseconds of sleep */
 	bool wflag = false;
 	unsigned int wmicro;	/* Microseconds of work */
 	unsigned int wcount;	/* work count */
-	int icount;	/* Iteration count. */
+	int icount;		/* Iteration count. */
+	unsigned int rsecs = 0;	/* Run for rsecs seconds. */
 	int c;
 	int error;
 
@@ -353,11 +353,11 @@ main(int argc, char **argv)
 			pflag = true;
 			break;
 		case 'r':
-			rsecs = atoi(optarg);
+			rsecs = str_to_u(optarg);
 			break;
 		case 's':
 			sflag = true;
-			smicro = atoi(optarg);
+			smicro = str_to_u(optarg);
 			break;
 		case 'u':
 			uflag = true;
