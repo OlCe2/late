@@ -313,7 +313,7 @@ main(int argc, char **argv)
 	bool wflag = false;
 	unsigned int wmicro;	/* Microseconds of work */
 	unsigned int wcount;	/* work count */
-	int icount;		/* Iteration count. */
+	unsigned int icount;	/* Iteration count. */
 	unsigned int rsecs = 0;	/* Run for rsecs seconds. */
 	int niceval;		/* Nice setting. */
 	int c;
@@ -337,7 +337,7 @@ main(int argc, char **argv)
 			break;
 		case 'i':
 			iflag = true;
-			icount = atoi(optarg);
+			icount = str_to_u(optarg);
 			break;
 		case 'l':
 			leeway = str_to_u(optarg);
