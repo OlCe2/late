@@ -132,8 +132,8 @@ void work_memcpy_report(struct iset *is);
 
 void cpu_report(struct timeval *elapsed);
 
-void finished(int trash);
-void usage(int rc);
+static void finished(int trash);
+static void usage(int rc);
 
 
 void
@@ -202,14 +202,13 @@ tv_print(char *pre, struct timeval *tv)
 	printf("%s%ld.%06lds\n", pre, tv->tv_sec, tv->tv_usec);
 }
 
-
-void
+static void
 finished(int trash)
 {
 	done = 1;
 }
 
-void
+static void
 sigalarm(int trash)
 {
 	static int sigcount;
@@ -232,13 +231,13 @@ sigalarm(int trash)
 	printf("\n");
 }
 
-void
+static void
 started(int trash)
 {
 	start = 1;
 }
 
-void
+static void
 usage(int rc)
 {
 	fprintf(stderr, "usage: late [-hpux] [-a <max calibration attempts>] "
