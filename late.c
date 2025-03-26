@@ -56,15 +56,8 @@
 #include <unistd.h>
 
 
-bool bflag;		/* Settle before test */
-bool cflag;		/* Calibrate ? */
-bool iflag;		/* Iterate a specific number of times? */
-bool nflag;		/* Was '-n' specified? */
 bool pflag;		/* Print priority? */
-bool uflag;		/* Use SIGUSR1 to start the test after settling */
 bool xflag;		/* Print stats once a second. */
-
-unsigned int settle_secs;	/* Settle before test this many seconds */
 
 /* Calibration. */
 /* Tenths of percent of error allowed during calibration. */
@@ -308,14 +301,21 @@ main(int argc, char **argv)
 {
 	struct timeval stime, etime;	/* Real start and end time */
 	struct timeval curtime;	/* Current time. */
+	bool cflag = false;	/* Calibrate ? */
+	unsigned int wmicro;	/* Microseconds of work */
 	bool sflag = false;
 	unsigned int smicro;	/* Microseconds of sleep */
 	bool wflag = false;
-	unsigned int wmicro;	/* Microseconds of work */
-	unsigned int wcount;	/* work count */
+	unsigned int wcount;	/* Work count. */
+	bool iflag = false;	/* Iterate a specific number of times? */
 	unsigned int icount;	/* Iteration count. */
 	unsigned int rsecs = 0;	/* Run for rsecs seconds. */
+	/* Settle before test this many seconds */
+	unsigned int settle_secs = 0;
+	bool nflag = false;	/* Was '-n' specified? */
 	int niceval;		/* Nice setting. */
+	/* Wait for SIGUSR1 to start the test. */
+	bool uflag = false;
 	int c;
 	int error;
 
