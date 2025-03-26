@@ -38,6 +38,7 @@
 #endif
 #include <sys/time.h>
 
+#include <assert.h>
 #include <err.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -263,7 +264,7 @@ usage(int rc)
 	    "-l: Calibration leeway in tenths of percent (default: 10).\n"
 	    "=== Execution pattern test ===\n"
 	    "-w: Number of iterations forming a unit of work.\n"
-	    "-s: Duration of sleep (in us; default: 1s).\n"
+	    "-s: Duration of sleep (in us).\n"
 	    "-i: Maximum number of repetitions of (work + sleep) cells\n"
 	    "    (not specified: Infinite; see also '-r').\n"
 	    "-r: Stop running (work + sleep) cells after reaching duration\n"
@@ -285,7 +286,7 @@ usage(int rc)
 	    "Using first the calibration mode ('-c'), it is possible to determine\n"
 	    "how many work iterations are necessary to busy a CPU for the passed\n"
 	    "duration (assuming late is scheduled on a CPU 100%% of the time).\n"
-	    "If '-c' is not specified, then '-w' must be.\n"
+	    "If '-c' is not specified, then '-w' and '-s' must be.\n"
 	    "Use options '-i' and/or '-r' to limit the number of repetitions of\n"
 	    "one cell.\n");
 	exit(EXIT_FAILURE);
@@ -309,6 +310,7 @@ main(int argc, char **argv)
 {
 	struct timeval stime, etime;	/* Real start and end time */
 	struct timeval curtime;	/* Current time. */
+	bool sflag = false;
 	int smicro;	/* Microseconds of sleep */
 	bool wflag = false;
 	unsigned int wmicro;	/* Microseconds of work */
@@ -316,8 +318,6 @@ main(int argc, char **argv)
 	int icount;	/* Iteration count. */
 	int c;
 	int error;
-
-	smicro = 1000000;	/* 1 second default */
 
 	while ((c = getopt(argc, argv, "a:b:c:hi:l:n:pr:s:uw:x")) != -1) {
 		switch (c) {
@@ -356,6 +356,7 @@ main(int argc, char **argv)
 			rsecs = atoi(optarg);
 			break;
 		case 's':
+			sflag = true;
 			smicro = atoi(optarg);
 			break;
 		case 'u':
@@ -373,13 +374,23 @@ main(int argc, char **argv)
 			/* NOTREACHED */
 		}
 	}
-	if (!cflag && !wflag)
+
+	/*
+	 * Determine in which mode we are (execution or calibration) and if we
+	 * have enough information for the mode.
+	 */
+	if (!cflag && !wflag && !sflag)
 		errx(EXIT_FAILURE,
-		    "Expecting work iterations (through '-w'; else "
-		    "calibrate with '-c'; see usage with '-h').");
-	else if (cflag && wflag)
+		    "Expecting '-w', '-s' or '-c'.  See usage with '-h'.");
+	if (cflag && (wflag || sflag))
 		errx(EXIT_FAILURE,
-		    "'-w' and '-c' are mutually exclusive (see '-h').");
+		    "'-c' is exclusive with '-w' and '-s' (see '-h').");
+	if ((wflag ^ sflag) == 1)
+		errx(EXIT_FAILURE,
+		    "One of '-w' and '-s' specified without the other "
+		    "(see '-h').");
+	assert((cflag && !wflag && !sflag) || (!cflag && wflag && sflag));
+
 	if (cflag) {
 		if (wmicro == 0)
 			errx(EXIT_FAILURE,
@@ -458,9 +469,8 @@ main(int argc, char **argv)
 	}
 
 	while (done == 0 && (!iflag || icount--)) {
-		if (wflag)
-			work_memcpy(wcount);
-		if (done == 0 && smicro)
+		work_memcpy(wcount);
+		if (done == 0 && smicro != 0)
 			test_latency(smicro);
 		if (rsecs) {
 			gettimeofday(&curtime, NULL);
