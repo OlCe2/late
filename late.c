@@ -64,7 +64,6 @@ bool pflag;		/* Print priority? */
 bool uflag;		/* Use SIGUSR1 to start the test after settling */
 bool xflag;		/* Print stats once a second. */
 
-int niceval;		/* Nice setting. */
 unsigned int settle_secs;	/* Settle before test this many seconds */
 
 /* Calibration. */
@@ -316,6 +315,7 @@ main(int argc, char **argv)
 	unsigned int wcount;	/* work count */
 	int icount;		/* Iteration count. */
 	unsigned int rsecs = 0;	/* Run for rsecs seconds. */
+	int niceval;		/* Nice setting. */
 	int c;
 	int error;
 
@@ -651,7 +651,7 @@ cpu_report(struct timeval *elapsed)
 
 	printf("\t%%CPU:\t\t%.2lf\n", pct);
 	printf("\tFinal Priority:\t%d\n", test_prio());
-	printf("\tNice setting:\t%d\n", niceval);
+	printf("\tNice setting:\t%d\n", getpriority(PRIO_PROCESS, 0));
 	printf("\tVoluntary Ctx Switch:\t%ld\n", ru.ru_nvcsw);
 	printf("\tInvoluntary Ctx Switch:\t%ld\n", ru.ru_nivcsw);
 }
