@@ -75,6 +75,21 @@ struct cell {
 	unsigned int work_iter;
 	unsigned int sleep_us;
 };
+/* Number of fields in a 'struct cell' (used by the parser). */
+#define NB_FIELDS_PER_CELL	2
+
+/* Represents repetitions of a list of cells. */
+struct pattern {
+	struct cell *cells;
+	unsigned int nb;
+	unsigned int repetitions;
+};
+
+/* Represents successive patterns to apply. */
+struct patterns {
+	struct pattern *patterns;
+	unsigned int nb;
+};
 
 /*
  * Interval sets.
@@ -250,8 +265,8 @@ usage(int rc)
 	    "[-b <settle seconds>]\n"
 	    "    [-c <work time (us)>] [-i <work loops>] "
 	    "[-l <calibration leeway>]\n"
-	    "    [-n <nice value>] [-r <run time (s)>] [-s <sleep time (us)>]\n"
-	    "    [-w <work iterations>]\n"
+	    "    [-n <nice value>] [-r <run time (s)>] [-S <cell series>]\n"
+	    "    [-s <sleep time (us)>] [-w <work iterations>]\n"
 	    "\nOptions:\n"
 	    "=== Calibration ===\n"
 	    "-c: Calibrate: Find work iterations to reach the passed duration.\n"
@@ -261,7 +276,16 @@ usage(int rc)
 	    "=== Execution pattern test ===\n"
 	    "-w: Number of iterations forming a unit of work.\n"
 	    "-s: Duration of sleep (in us).\n"
-	    "-i: Maximum number of repetitions of (work + sleep) cells\n"
+	    "-S: Cell series: List of groups of a single repetition count and\n"
+	    "    multiple cells as alternating work iterations and sleep time "
+	    "(us).\n"
+	    "    Each group is separated by spaces or semi-colons, and each value\n"
+	    "    in a group is separated by commas.  The repetition count applies\n"
+	    "    to each group as a whole (all cells are executed successively,\n"
+	    "    and this is repeated as many times as requested).  Each group is\n"
+	    "    executed in turn, and execution cycles back to the first group.\n"
+	    "    Supersedes '-w' and '-s'.  Incompatible with them.\n"
+	    "-i: Maximum number of executed (work + sleep) cells\n"
 	    "    (not specified: Infinite; see also '-r').\n"
 	    "-r: Stop running (work + sleep) cells after reaching duration\n"
 	    "    (in seconds; default: 0 (no limit); see also '-i').\n"
@@ -282,9 +306,12 @@ usage(int rc)
 	    "Using first the calibration mode ('-c'), it is possible to determine\n"
 	    "how many work iterations are necessary to busy a CPU for the passed\n"
 	    "duration (assuming late is scheduled on a CPU 100%% of the time).\n"
-	    "If '-c' is not specified, then '-w' and '-s' must be.\n"
-	    "Use options '-i' and/or '-r' to limit the number of repetitions of\n"
-	    "one cell.\n");
+	    "If '-c' is not specified, either '-w' and '-s', or '-S' must be.\n"
+	    "A series of groups of different cells, each group being repeated a\n"
+	    "specific number of times, may be specified with '-S'.\n"
+	    "The cell specified by '-w' and '-s' or the series by '-S' are by\n"
+	    "default repeated indefinitely.  Use options '-i' and/or '-r' to\n"
+	    "limit the number of processed cells (counting repetitions).\n");
 	exit(EXIT_FAILURE);
 }
 
@@ -301,6 +328,145 @@ str_to_u(const char *str)
 	return (ul);
 }
 
+/*
+ * Temporarily modifies 'str', but restores it on exit.
+ */
+static void
+parse_patterns(char *str, struct patterns *patterns)
+{
+	const unsigned int preamble_fields = 1;
+	char *p, *ref;
+	struct pattern *cur_p;
+	struct cell *cur_c;
+	unsigned int field_idx; /* Index of field in a single pattern. */
+
+	p = ref = str;
+	cur_p = NULL;
+	cur_c = NULL;
+	field_idx = 0;
+
+	for (;;) {
+		bool eop;
+		char sav;
+
+		eop = false;
+
+		switch (*p) {
+		case ',':
+			break;
+		case '\0':
+		case ' ':
+		case ';':
+			eop = true;
+			break;
+		default:
+			++p;
+			continue;
+		}
+
+		sav = *p;
+		*p = '\0';
+
+		/* Preamble. */
+		switch (field_idx) {
+		case 0:
+			assert(cur_p == NULL);
+			patterns->patterns = realloc(patterns->patterns,
+			    (patterns->nb + 1) * sizeof(*patterns->patterns));
+			if (patterns->patterns == NULL)
+				err(EXIT_FAILURE,
+				    "Cannot extend the patterns array.");
+			cur_p = patterns->patterns + patterns->nb++;
+
+			cur_p->cells = NULL;
+			cur_p->nb = 0;
+			cur_p->repetitions = str_to_u(ref);
+			goto next;
+		}
+
+		assert(field_idx >= preamble_fields);
+		switch ((field_idx - preamble_fields) % NB_FIELDS_PER_CELL) {
+		case 0:
+			assert(cur_c == NULL);
+			cur_p->cells = realloc(cur_p->cells,
+			    (cur_p->nb + 1) * sizeof(*cur_p->cells));
+			if (cur_p->cells == NULL)
+				err(EXIT_FAILURE,
+				    "Cannot extend a pattern's cell array.");
+			cur_c = cur_p->cells + cur_p->nb++;
+
+			cur_c->work_iter = str_to_u(ref);
+			break;
+		case 1:
+			cur_c->sleep_us = str_to_u(ref);
+
+			cur_c = NULL;
+			break;
+		}
+
+next:
+		if (++field_idx == 0)
+			errx(EXIT_FAILURE, "Field overflow during parsing.");
+
+		if (eop) {
+			/*
+			 * First field is the number of repetitions, the rest is
+			 * alternating work iterations and sleep time, both of
+			 * which must be specified.  The code below is slightly
+			 * more generic than that.
+			 */
+			if (preamble_fields != 0) {
+				if (field_idx < preamble_fields)
+					errx(EXIT_FAILURE,
+					    "Incomplete preamble after '%s'.",
+					    ref);
+				if (field_idx == preamble_fields)
+					errx(EXIT_FAILURE,
+					    "At least one cell descriptor must "
+					    "follow the preamble after '%s'.",
+					    ref);
+			}
+			if ((field_idx - preamble_fields) % NB_FIELDS_PER_CELL !=
+			    0)
+				errx(EXIT_FAILURE,
+				    "Missing fields in the series after '%s' "
+				    "(%d missing in the last cell descriptor).",
+				    ref,
+				    NB_FIELDS_PER_CELL -
+				    ((field_idx - preamble_fields) %
+				    NB_FIELDS_PER_CELL));
+
+			cur_p = NULL;
+			field_idx = 0;
+		}
+
+		*p++ = sav;
+		if (sav == '\0')
+			break;
+		ref = p;
+	}
+
+	return;
+}
+
+static void
+free_pattern_content(struct pattern * pattern)
+{
+	free(pattern->cells);
+	pattern->cells = NULL;
+	pattern->nb = 0;
+}
+
+static void
+free_patterns_content(struct patterns *patterns)
+{
+	for (unsigned int i = 0; i < patterns->nb; ++i)
+		free_pattern_content(&patterns->patterns[i]);
+	free(patterns->patterns);
+	patterns->patterns = NULL;
+	patterns->nb = 0;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -311,6 +477,8 @@ main(int argc, char **argv)
 	bool sflag = false;
 	bool wflag = false;
 	struct cell single;
+	bool Sflag = false;
+	struct patterns patterns = {};
 	bool iflag = false;	/* Iterate a specific number of times? */
 	unsigned int icount;	/* Iteration count. */
 	unsigned int rsecs = 0;	/* Run for rsecs seconds. */
@@ -321,6 +489,8 @@ main(int argc, char **argv)
 	/* Wait for SIGUSR1 to start the test. */
 	bool uflag = false;
 	sigset_t usr1_sset, initial_sset;
+	/* Indices of the currently processed cell in 'patterns'. */
+	unsigned int pattern_idx = 0, rep_idx = 0, cell_idx = 0;
 	int c;
 	int error;
 
@@ -332,7 +502,7 @@ main(int argc, char **argv)
 	sigaddset(&usr1_sset, SIGUSR1);
 	sigprocmask(SIG_BLOCK, &usr1_sset, &initial_sset);
 
-	while ((c = getopt(argc, argv, "a:b:c:hi:l:n:pr:s:uw:x")) != -1) {
+	while ((c = getopt(argc, argv, "a:b:c:hi:l:n:pr:S:s:uw:x")) != -1) {
 		switch (c) {
 		case 'a':
 			cmiter = str_to_u(optarg);
@@ -368,6 +538,11 @@ main(int argc, char **argv)
 		case 'r':
 			rsecs = str_to_u(optarg);
 			break;
+		case 'S':
+			Sflag = true;
+			free_patterns_content(&patterns);
+			parse_patterns(optarg, &patterns);
+			break;
 		case 's':
 			sflag = true;
 			single.sleep_us = str_to_u(optarg);
@@ -392,17 +567,19 @@ main(int argc, char **argv)
 	 * Determine in which mode we are (execution or calibration) and if we
 	 * have enough information for the mode.
 	 */
-	if (!cflag && !wflag && !sflag)
+	if (!cflag && !wflag && !sflag && !Sflag)
 		errx(EXIT_FAILURE,
-		    "Expecting '-w', '-s' or '-c'.  See usage with '-h'.");
-	if (cflag && (wflag || sflag))
+		    "Expecting '-w', '-s', '-S' or '-c'.  See usage with '-h'.");
+	if (cflag && (wflag || sflag || Sflag))
 		errx(EXIT_FAILURE,
-		    "'-c' is exclusive with '-w' and '-s' (see '-h').");
+		    "'-c' is exclusive with '-w', '-s' and '-S' (see '-h').");
 	if ((wflag ^ sflag) == 1)
 		errx(EXIT_FAILURE,
 		    "One of '-w' and '-s' specified without the other "
 		    "(see '-h').");
-	assert((cflag && !wflag && !sflag) || (!cflag && wflag && sflag));
+	assert((cflag && !wflag && !sflag && !Sflag) ||
+	    (!cflag && ((wflag && sflag && !Sflag) ||
+	    (!wflag && !sflag && Sflag))));
 
 	if (cflag) {
 		if (wmicro == 0)
@@ -425,6 +602,26 @@ main(int argc, char **argv)
 		work_memcpy_calibrate(wmicro);
 		exit(EXIT_SUCCESS);
 	}
+
+	/* Initialize patterns[] on non-'-S'. */
+	if (!Sflag) {
+		struct pattern *cur_p;
+
+		patterns.patterns = malloc(sizeof(*patterns.patterns));
+		if (patterns.patterns == NULL)
+			err(EXIT_FAILURE,
+			    "Cannot allocate the patterns array.");
+		patterns.nb = 1;
+		cur_p = patterns.patterns;
+		/*
+		 * WARNING: Must remove this pointer before calling
+		 * free_patterns_content(), as it points to the stack.
+		 */
+		cur_p->cells = &single;
+		cur_p->nb = 1;
+		cur_p->repetitions = 1;
+	} else if (patterns.nb == 0)
+		errx(EXIT_FAILURE, "At least one pattern required.");
 
 	/*
 	 * Initialize our four interval sets.
@@ -475,15 +672,30 @@ main(int argc, char **argv)
 			err(EXIT_FAILURE, "Cannot set the nice value.");
 	}
 
-	while (done == 0 && (!iflag || icount--)) {
-		work_memcpy(single.work_iter);
-		if (done == 0 && single.sleep_us != 0)
-			test_latency(single.sleep_us);
+	while (done == 0 && (!iflag || icount != 0)) {
+		const struct pattern *const cur_p =
+		    patterns.patterns + pattern_idx;
+		const struct cell *const cur_c =
+		    cur_p->cells + cell_idx;
+
+		--icount;
+		work_memcpy(cur_c->work_iter);
+		if (done == 0 && cur_c->sleep_us != 0)
+			test_latency(cur_c->sleep_us);
+
 		if (rsecs) {
 			gettimeofday(&curtime, NULL);
 			curtime.tv_sec -= rsecs;
 			if (timercmp(&stime, &curtime, <))
 				break;
+		}
+
+		if (++cell_idx == cur_p->nb) {
+			cell_idx = 0;
+			if (++rep_idx == cur_p->repetitions) {
+				rep_idx = 0;
+				pattern_idx = (pattern_idx + 1) % patterns.nb;
+			}
 		}
 	}
 	/* Compute the total working time */
