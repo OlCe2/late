@@ -70,6 +70,12 @@ volatile sig_atomic_t done;	/* Should we stop? */
 /* Internal multiplicator for memcpy() iterations. */
 #define INT_MEMCPY_ITERATIONS	4096
 
+/* Represents one work unit followed by one sleep unit. */
+struct cell {
+	unsigned int work_iter;
+	unsigned int sleep_us;
+};
+
 /*
  * Interval sets.
  */
@@ -303,9 +309,8 @@ main(int argc, char **argv)
 	bool cflag = false;	/* Calibrate ? */
 	unsigned int wmicro;	/* Microseconds of work */
 	bool sflag = false;
-	unsigned int smicro;	/* Microseconds of sleep */
 	bool wflag = false;
-	unsigned int wcount;	/* Work count. */
+	struct cell single;
 	bool iflag = false;	/* Iterate a specific number of times? */
 	unsigned int icount;	/* Iteration count. */
 	unsigned int rsecs = 0;	/* Run for rsecs seconds. */
@@ -365,14 +370,14 @@ main(int argc, char **argv)
 			break;
 		case 's':
 			sflag = true;
-			smicro = str_to_u(optarg);
+			single.sleep_us = str_to_u(optarg);
 			break;
 		case 'u':
 			uflag = true;
 			break;
 		case 'w':
 			wflag = 1;
-			wcount = str_to_u(optarg);
+			single.work_iter = str_to_u(optarg);
 			break;
 		case 'x':
 			xflag = true;
@@ -471,9 +476,9 @@ main(int argc, char **argv)
 	}
 
 	while (done == 0 && (!iflag || icount--)) {
-		work_memcpy(wcount);
-		if (done == 0 && smicro != 0)
-			test_latency(smicro);
+		work_memcpy(single.work_iter);
+		if (done == 0 && single.sleep_us != 0)
+			test_latency(single.sleep_us);
 		if (rsecs) {
 			gettimeofday(&curtime, NULL);
 			curtime.tv_sec -= rsecs;
