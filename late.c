@@ -55,6 +55,33 @@
 #include <time.h>
 #include <unistd.h>
 
+#if defined(__FreeBSD__) || defined(__linux__)
+#define HAS_CLOCK_NANOSLEEP
+#endif
+
+#ifdef CLOCK_UPTIME
+#define MY_CLOCK_UPTIME	CLOCK_UPTIME
+#else
+/*
+ * By lack of something better.  However, on Linux, this fortunately (but
+ * wrongly) works like our CLOCK_UPTIME.
+ */
+#define MY_CLOCK_UPTIME	CLOCK_MONOTONIC
+#endif
+
+#if defined(CLOCK_UPTIME_FAST)
+#define MY_CLOCK_UPTIME_FAST	CLOCK_UPTIME_FAST
+#elif defined(CLOCK_MONOTONIC_COARSE)
+/*
+ * On Linux, will do what we want (see comment for CLOCK_MONOTONIC).  On other
+ * systems (none of the other BSDs at the moment), may include suspend time.
+ */
+#define MY_CLOCK_UPTIME_FAST	CLOCK_MONOTONIC_COARSE
+#else
+/* Fallback to the preferred non-fast method. */
+#define MY_CLOCK_UPTIME_FAST	MY_CLOCK_UPTIME
+#endif
+
 
 bool pflag;		/* Print priority? */
 bool xflag;		/* Print stats once a second. */
@@ -95,44 +122,79 @@ struct patterns {
  * Interval sets.
  */
 struct iset {
-	struct timeval	is_max;		/* Maximum timeval for this set. */
-	struct timeval	is_total;	/* Total time accumulated. */
+	struct timespec	is_max;		/* Maximum timespec for this set. */
+	struct timespec	is_total;	/* Total time accumulated. */
 	unsigned int	is_count;	/* Number of recorded intervals. */
 };
 
+static const unsigned int nsecs_in_sec = 1000000000;
+
+static inline void
+get_time(struct timespec *tp)
+{
+	if (clock_gettime(MY_CLOCK_UPTIME, tp) != 0)
+		err(EXIT_FAILURE, "%s: clock_get_time", __func__);
+}
+
+static inline void
+get_time_fast(struct timespec *tp)
+{
+	if (clock_gettime(MY_CLOCK_UPTIME_FAST, tp) != 0)
+		err(EXIT_FAILURE, "%s: clock_get_time", __func__);
+}
+
+static inline void
+get_cpu_time(struct timespec *tp)
+{
+	if (clock_gettime(CLOCK_PROCESS_CPUTIME_ID, tp) != 0)
+		err(EXIT_FAILURE, "%s: clock_get_time", __func__);
+}
+
+static inline void
+ts_sleep(struct timespec *ts)
+{
+	while (
+#ifdef HAS_CLOCK_NANOSLEEP
+	    clock_nanosleep(MY_CLOCK_UPTIME, 0, ts, ts)
+#else
+	    nanosleep(ts, ts)
+#endif
+	    != 0);
+}
+
 void is_init(struct iset *is);
-void is_add(struct iset *is, struct timeval *tv);
-void is_average(struct iset *is, struct timeval *tv);
-void is_max(struct iset *is, struct timeval *tv);
-void is_total(struct iset *is, struct timeval *tv);
+void is_add(struct iset *is, struct timespec *ts);
+void is_average(struct iset *is, struct timespec *ts);
+void is_max(struct iset *is, struct timespec *ts);
+void is_total(struct iset *is, struct timespec *ts);
 void is_count(struct iset *is, unsigned int *count);
 
-#ifndef timeradd
-#define timeradd(tvp, uvp, vvp)						\
+#ifndef timespecadd
+#define timespecadd(tsp, usp, vsp)					\
 do {									\
-	(vvp)->tv_sec = (tvp)->tv_sec + (uvp)->tv_sec;			\
-	(vvp)->tv_usec = (tvp)->tv_usec + (uvp)->tv_usec;		\
-	if ((vvp)->tv_usec >= 1000000) {				\
-		(vvp)->tv_sec++;					\
-		(vvp)->tv_usec -= 1000000;				\
+	(vsp)->tv_sec = (tsp)->tv_sec + (usp)->tv_sec;			\
+	(vsp)->tv_nsec = (tsp)->tv_nsec + (usp)->tv_nsec;		\
+	if ((vsp)->tv_nsec >= nsecs_in_sec) {				\
+		(vsp)->tv_sec++;					\
+		(vsp)->tv_nsec -= nsecs_in_sec;				\
 	}								\
 } while (0)
 #endif
-#ifndef timercmp
-#define timercmp(tvp, uvp, cmp)						\
-	(((tvp)->tv_sec == (uvp)->tv_sec) ?				\
-	((tvp)->tv_usec cmp (uvp)->tv_usec) :				\
-	((tvp)->tv_sec cmp (uvp)->tv_sec))
+#ifndef timespeccmp
+#define timespeccmp(tsp, usp, cmp)					\
+	(((tsp)->tv_sec == (usp)->tv_sec) ?				\
+	((tsp)->tv_nsec cmp (usp)->tv_nsec) :				\
+	((tsp)->tv_sec cmp (usp)->tv_sec))
 
 #endif
-#ifndef timersub
-#define timersub(tvp, uvp, vvp)						\
+#ifndef timespecsub
+#define timespecsub(tsp, usp, vsp)					\
 	do {								\
-		(vvp)->tv_sec = (tvp)->tv_sec - (uvp)->tv_sec;		\
-		(vvp)->tv_usec = (tvp)->tv_usec - (uvp)->tv_usec;	\
-		if ((vvp)->tv_usec < 0) {				\
-			(vvp)->tv_sec--;				\
-			(vvp)->tv_usec += 1000000;			\
+		(vsp)->tv_sec = (tsp)->tv_sec - (usp)->tv_sec;		\
+		(vsp)->tv_nsec = (tsp)->tv_nsec - (usp)->tv_nsec;	\
+		if ((vsp)->tv_nsec < 0) {				\
+			(vsp)->tv_sec--;				\
+			(vsp)->tv_nsec += nsecs_in_sec;			\
 		}							\
 	} while (0)
 #endif
@@ -143,7 +205,7 @@ struct iset work_set;
 struct iset work_cur_set;
 struct iset sleep_set;
 
-void test_latency(unsigned int microseconds);
+void test_latency(uint64_t microseconds);
 void test_latency_report(struct iset *is);
 int test_prio(void);
 
@@ -151,7 +213,7 @@ void work_memcpy(unsigned int count);
 void work_memcpy_calibrate(uint64_t microseconds);
 void work_memcpy_report(struct iset *is);
 
-void cpu_report(struct timeval *elapsed);
+void cpu_report(struct timespec *elapsed);
 
 static void finished(int trash);
 static void usage(int rc);
@@ -164,45 +226,45 @@ is_init(struct iset *is)
 }
 
 void
-is_add(struct iset *is, struct timeval *tv)
+is_add(struct iset *is, struct timespec *ts)
 {
 	/* Don't update the count and total time on overflow. */
 	if (is->is_count != UINT_MAX) {
 		is->is_count++;
 
 		/* Add this to the total */
-		timeradd(&is->is_total, tv, &is->is_total);
+		timespecadd(&is->is_total, ts, &is->is_total);
 	}
 
 	/* See if this value exceeds the max. */
-	if (timercmp(tv, &is->is_max, >))
-		is->is_max = *tv;
+	if (timespeccmp(ts, &is->is_max, >))
+		is->is_max = *ts;
 }
 
 void
-is_average(struct iset *is, struct timeval *tv)
+is_average(struct iset *is, struct timespec *ts)
 {
 	uint64_t total;
 
 	if (is->is_count == 0) {
-		tv->tv_sec = tv->tv_usec = 0;
+		ts->tv_sec = ts->tv_nsec = 0;
 		return;
 	}
 
-	total = is->is_total.tv_usec;
-	total += is->is_total.tv_sec * 1000000;
+	total = is->is_total.tv_nsec;
+	total += is->is_total.tv_sec * nsecs_in_sec;
 
 	total /= is->is_count;
 
-	tv->tv_sec = total / 1000000;
-	total -= tv->tv_sec * 1000000;
-	tv->tv_usec = total;
+	ts->tv_sec = total / nsecs_in_sec;
+	total -= ts->tv_sec * nsecs_in_sec;
+	ts->tv_nsec = total;
 }
 
 void
-is_max(struct iset *is, struct timeval *tv)
+is_max(struct iset *is, struct timespec *ts)
 {
-	*tv = is->is_max;
+	*ts = is->is_max;
 }
 
 void
@@ -212,15 +274,16 @@ is_count(struct iset *is, unsigned int *count)
 }
 
 void
-is_total(struct iset *is, struct timeval *tv)
+is_total(struct iset *is, struct timespec *ts)
 {
-	*tv = is->is_total;
+	*ts = is->is_total;
 }
 
 void
-tv_print(char *pre, struct timeval *tv)
+ts_print(char *pre, struct timespec *ts)
 {
-	printf("%s%ld.%06lds\n", pre, tv->tv_sec, tv->tv_usec);
+	/* No need to print beyond us. */
+	printf("%s%ld.%06lds\n", pre, ts->tv_sec, ts->tv_nsec / 1000);
 }
 
 static void
@@ -470,8 +533,7 @@ free_patterns_content(struct patterns *patterns)
 int
 main(int argc, char **argv)
 {
-	struct timeval stime, etime;	/* Real start and end time */
-	struct timeval curtime;	/* Current time. */
+	struct timespec stime, etime;	/* Real start and end time */
 	bool cflag = false;	/* Calibrate ? */
 	unsigned int wmicro;	/* Microseconds of work */
 	bool sflag = false;
@@ -641,13 +703,12 @@ main(int argc, char **argv)
 
 	signal(SIGINT, finished);
 
-	/* Record the time that we start, for the total work time */
-	if (gettimeofday(&stime, NULL) != 0)
-		err(EXIT_FAILURE, "gettimeofday");
+	/* Record the start time */
+	get_time(&stime);
 
 	/* Sleep to let the priority settle before test */
 	if (settle_secs != 0) {
-		struct timeval tv;
+		struct timespec ts;
 
 		sleep(settle_secs);
 
@@ -656,9 +717,9 @@ main(int argc, char **argv)
 		 * we woke up to be reflected in the wstime.  This is why we
 		 * don't just start the timer below.
 		 */
-		tv.tv_sec = settle_secs;
-		tv.tv_usec = 0;
-		timeradd(&stime, &tv, &stime);
+		ts.tv_sec = settle_secs;
+		ts.tv_nsec = 0;
+		timespecadd(&stime, &ts, &stime);
 	}
 
 	if (xflag || pflag) {
@@ -684,9 +745,11 @@ main(int argc, char **argv)
 			test_latency(cur_c->sleep_us);
 
 		if (rsecs) {
-			gettimeofday(&curtime, NULL);
+			struct timespec curtime;
+
+			get_time_fast(&curtime);
 			curtime.tv_sec -= rsecs;
-			if (timercmp(&stime, &curtime, <))
+			if (timespeccmp(&stime, &curtime, <))
 				break;
 		}
 
@@ -698,10 +761,9 @@ main(int argc, char **argv)
 			}
 		}
 	}
-	/* Compute the total working time */
-	if (gettimeofday(&etime, NULL) != 0)
-		err(EXIT_FAILURE, "gettimeofday");
-	timersub(&etime, &stime, &etime);
+	/* Compute the total time */
+	get_time(&etime);
+	timespecsub(&etime, &stime, &etime);
 
 	/* Generate reports */
 	test_latency_report(&lat_set);
@@ -714,8 +776,8 @@ main(int argc, char **argv)
 void
 work_memcpy_calibrate(uint64_t micro)
 {
-	struct timeval stime;	/* Start time */
-	struct timeval etime;	/* End time */
+	struct timespec stime;	/* Start time */
+	struct timespec etime;	/* End time */
 	uint64_t rmicro;	/* Current run time */
 	unsigned int count;
 	unsigned int niter;
@@ -744,18 +806,16 @@ work_memcpy_calibrate(uint64_t micro)
 			    "Reached calibration attempts limit (%u). "
 			    "Change with '-a', and/or use '-l'.", cmiter);
 
-		if (gettimeofday(&stime, NULL) != 0)
-			err(EXIT_FAILURE, "gettimeofday");
+		get_time(&stime);
 
 		work_memcpy(count);
 
-		if (gettimeofday(&etime, NULL) != 0)
-			err(EXIT_FAILURE, "gettimeofday");
+		get_time(&etime);
 
 		/* Figure out how long we worked for */
-		timersub(&etime, &stime, &etime);
-		rmicro = ((uint64_t)etime.tv_sec * 1000000) +
-		    (uint64_t)etime.tv_usec;
+		timespecsub(&etime, &stime, &etime);
+		rmicro = (((uint64_t)etime.tv_sec * nsecs_in_sec) +
+		    (uint64_t)etime.tv_nsec) / 1000;
 		printf("%u iterations took %" PRIu64 " microseconds.\n",
 		    count, rmicro);
 
@@ -798,14 +858,13 @@ too_many_iter:
 void
 work_memcpy(unsigned int count)
 {
-	struct timeval stime;	/* Start time */
-	struct timeval etime;	/* End time */
-	struct timeval dtime;	/* Difference between the above */
+	struct timespec stime;	/* Start time */
+	struct timespec etime;	/* End time */
+	struct timespec dtime;	/* Difference between the above */
 	char buf0[4096];
 	char buf1[4096];
 
-	if (gettimeofday(&stime, NULL) != 0)
-		err(EXIT_FAILURE, "gettimeofday");
+	get_time(&stime);
 
 	for (unsigned int i = 0; i != count; ++i)
 		for (unsigned int j = 0; j != INT_MEMCPY_ITERATIONS; ++j) {
@@ -814,11 +873,10 @@ work_memcpy(unsigned int count)
 			memcpy(buf1, buf0, 4096);
 		}
 
-	if (gettimeofday(&etime, NULL) != 0)
-		err(EXIT_FAILURE, "gettimeofday");
+	get_time(&etime);
 
 	/* Figure out how long we ran for */
-	timersub(&etime, &stime, &dtime);
+	timespecsub(&etime, &stime, &dtime);
 
 	is_add(&work_set, &dtime);
 	is_add(&work_cur_set, &dtime);
@@ -827,46 +885,46 @@ work_memcpy(unsigned int count)
 void
 work_memcpy_report(struct iset *is)
 {
-	struct timeval tv;
+	struct timespec ts;
 	unsigned int count;
 
 	printf("Time executing work loop:\n");
 
-	is_max(is, &tv);
-	tv_print("\tMax:\t\t", &tv);
+	is_max(is, &ts);
+	ts_print("\tMax:\t\t", &ts);
 
-	is_average(is, &tv);
-	tv_print("\tAverage:\t", &tv);
+	is_average(is, &ts);
+	ts_print("\tAverage:\t", &ts);
 
 	is_count(is, &count);
 	printf("\tWork Count:\t%u\n", count);
 }
 
 void
-cpu_report(struct timeval *elapsed)
+cpu_report(struct timespec *elapsed)
 {
-	struct timeval cputime;
-	struct timeval tv;
+	struct timespec cputime;
+	struct timespec ts;
 	struct rusage ru;
-	uint64_t rmicro;
-	uint64_t emicro;
+	double cpu_ns;
+	double elapsed_ns;
 	double pct;
 
+	get_cpu_time(&cputime);
 	if (getrusage(RUSAGE_SELF, &ru) != 0)
 		err(EXIT_FAILURE, "getrusage");
 
 	printf("CPU Stats:\n");
-	tv_print("\tReal Time:\t", elapsed);
+	ts_print("\tReal Time:\t", elapsed);
+	ts_print("\tCPU Time:\t", &cputime);
 
-	timeradd(&ru.ru_utime, &ru.ru_stime, &cputime);
-	tv_print("\tCPU Time:\t", &cputime);
+	is_total(&sleep_set, &ts);
+	ts_print("\tSleep Time:\t", &ts);
 
-	is_total(&sleep_set, &tv);
-	tv_print("\tSleep Time:\t", &tv);
-
-	rmicro = (cputime.tv_sec * 1000000) + cputime.tv_usec;
-	emicro = (elapsed->tv_sec * 1000000) + elapsed->tv_usec;
-	pct = ((double)rmicro / (double)emicro) * 100;
+	cpu_ns = (double)((cputime.tv_sec * nsecs_in_sec) + cputime.tv_nsec);
+	elapsed_ns = (double)((elapsed->tv_sec * nsecs_in_sec) +
+	    elapsed->tv_nsec);
+	pct = cpu_ns * 100 / elapsed_ns;
 
 	printf("\t%%CPU:\t\t%.2lf\n", pct);
 	printf("\tFinal Priority:\t%d\n", test_prio());
@@ -876,34 +934,31 @@ cpu_report(struct timeval *elapsed)
 }
 
 void
-test_latency(unsigned int microseconds)
+test_latency(uint64_t microseconds)
 {
-	struct timeval stime;	/* Start time */
-	struct timeval etime;	/* End time */
-	struct timeval dtime;	/* Difference between the above */
-	struct timeval utime;	/* Represents usleep time */
+	struct timespec itime;	/* Represents 'microseconds' */
+	struct timespec stime;	/* Start time */
+	struct timespec etime;	/* End time */
+	struct timespec dtime;	/* Difference between the above */
 	struct timespec ts;
 
-	if (gettimeofday(&stime, NULL) != 0)
-		err(EXIT_FAILURE, "gettimeofday");
+	itime.tv_sec = microseconds / (nsecs_in_sec / 1000);
+	itime.tv_nsec = microseconds * 1000 - itime.tv_sec * nsecs_in_sec;
+	ts = itime;
 
-	ts.tv_sec = microseconds / 1000000;
-	ts.tv_nsec = (microseconds - (ts.tv_sec * 1000000)) * 1000;
-	while (nanosleep(&ts, &ts) != 0);
-
-	if (gettimeofday(&etime, NULL) != 0)
-		err(EXIT_FAILURE, "gettimeofday");
+	/* Sleep */
+	get_time(&stime);
+	ts_sleep(&ts);
+	get_time(&etime);
 
 	/* Figure out how long we slept for */
-	timersub(&etime, &stime, &dtime);
+	timespecsub(&etime, &stime, &dtime);
 
 	/* Add this to the total time spent sleeping. */
 	is_add(&sleep_set, &dtime);
 
 	/* Now subtract how long we should have slept for */
-	utime.tv_sec = 0;
-	utime.tv_usec = microseconds;
-	timersub(&dtime, &utime, &dtime);
+	timespecsub(&dtime, &itime, &dtime);
 
 	/* Add this to the total */
 	is_add(&lat_set, &dtime);
@@ -913,16 +968,16 @@ test_latency(unsigned int microseconds)
 void
 test_latency_report(struct iset *is)
 {
-	struct timeval tv;
+	struct timespec ts;
 	unsigned int count;
 
 	printf("Sleep resumption latency:\n");
 
-	is_max(is, &tv);
-	tv_print("\tMax:\t\t", &tv);
+	is_max(is, &ts);
+	ts_print("\tMax:\t\t", &ts);
 
-	is_average(is, &tv);
-	tv_print("\tAverage:\t", &tv);
+	is_average(is, &ts);
+	ts_print("\tAverage:\t", &ts);
 
 	is_count(is, &count);
 	printf("\tSleep Count:\t%u\n", count);
