@@ -90,6 +90,7 @@ bool xflag;		/* Print stats once a second. */
 /* Tenths of percent of error allowed during calibration. */
 unsigned int leeway = 10;	/* (Default is thus 1%.) */
 unsigned int cmiter = 8;	/* Max number of attempts during calibration. */
+unsigned int rstab = 3;		/* Repetitions to stabilize the result. */
 
 volatile sig_atomic_t start;	/* Can we start? */
 volatile sig_atomic_t done;	/* Should we stop? */
@@ -350,14 +351,15 @@ usage(int rc)
 	    "[-b <settle seconds>]\n"
 	    "    [-c <work time (us)>] [-i <work loops>] "
 	    "[-l <calibration leeway>]\n"
-	    "    [-n <nice value>] [-r <run time (s)>] [-S <cell series>]\n"
-	    "    [-s <sleep time (us)>] [-w <work iterations>]\n"
+	    "    [-n <nice value>] [-r <run time (s)|calibration stabilization>]\n"
+	    "    [-S <cell series>] [-s <sleep time (us)>] [-w <work iterations>]\n"
 	    "\nOptions:\n"
 	    "=== Calibration ===\n"
 	    "-c: Calibrate: Find work iterations to reach the passed duration.\n"
 	    "-a: Max calibration attempts (=feedback loop iterations; "
 	    "    default: 8).\n"
 	    "-l: Calibration leeway in tenths of percent (default: 10).\n"
+	    "-r: Repetitions to evaluate the final value (stabilization).\n"
 	    "=== Execution pattern test ===\n"
 	    "-w: Number of iterations forming a unit of work.\n"
 	    "-s: Duration of sleep (in us).\n"
@@ -564,7 +566,8 @@ main(int argc, char **argv)
 	struct patterns patterns = {};
 	bool iflag = false;	/* Iterate a specific number of times? */
 	unsigned int icount;	/* Iteration count. */
-	unsigned int rsecs = 0;	/* Run for rsecs seconds. */
+	/* Value of '-r' (calibration stabilization or seconds to run). */
+	unsigned int rval = 0;
 	/* Settle before test this many seconds */
 	unsigned int settle_secs = 0;
 	bool nflag = false;	/* Was '-n' specified? */
@@ -619,7 +622,7 @@ main(int argc, char **argv)
 			pflag = true;
 			break;
 		case 'r':
-			rsecs = str_to_u(optarg);
+			rval = str_to_u(optarg);
 			break;
 		case 'S':
 			Sflag = true;
@@ -665,6 +668,8 @@ main(int argc, char **argv)
 	    (!wflag && !sflag && Sflag))));
 
 	if (cflag) {
+		if (rval != 0)
+			rstab = rval;
 		if (wmicro == 0)
 			errx(EXIT_FAILURE,
 			    "Duration for calibration can't be 0.");
@@ -769,11 +774,11 @@ main(int argc, char **argv)
 		if (done == 0 && cur_c->sleep_us != 0)
 			test_latency(cur_c->sleep_us);
 
-		if (rsecs) {
+		if (rval) {
 			struct timespec curtime;
 
 			get_time_fast(&curtime);
-			curtime.tv_sec -= rsecs;
+			curtime.tv_sec -= rval;
 			if (timespeccmp(&gstime, &curtime, <))
 				break;
 		}
@@ -799,6 +804,8 @@ work_memcpy_calibrate(uint64_t micro)
 	uint64_t rmicro;	/* Current run time */
 	unsigned int count;
 	unsigned int niter;
+	unsigned int stab_points;
+	unsigned int stab_iter_sum;
 
 	rmicro = 0;
 	count = 10000;
@@ -819,22 +826,31 @@ work_memcpy_calibrate(uint64_t micro)
 	    rmicro * SCALE > micro * (1000 + leeway) * SCALE / 1000) {
 		unsigned int new_count;
 
-		if (niter++ == cmiter)
+		/*
+		 * Each time we re-enter the loop because the guard is not
+		 * verified, we are out of the leeway and thus need to leave the
+		 * stabilization phase (if we started it).
+		 */
+		stab_points = 0;
+		stab_iter_sum = 0;
+
+meat:
+		if (stab_points == 0 && niter++ == cmiter)
 			errx(EXIT_FAILURE,
-			    "Reached calibration attempts limit (%u). "
-			    "Change with '-a', and/or use '-l'.", cmiter);
+			    "Reached calibration feedback loops number limit (%u). "
+			    "Change with '-a', and/or use '-l'. See also '-r'.",
+			    cmiter);
 
 		get_time(&stime);
-
 		work_memcpy(count);
-
 		get_time(&etime);
 
 		/* Figure out how long we worked for */
 		timespecsub(&etime, &stime, &etime);
 		rmicro = (((uint64_t)etime.tv_sec * nsecs_in_sec) +
 		    (uint64_t)etime.tv_nsec) / 1000;
-		printf("%u iterations took %" PRIu64 " microseconds.\n",
+		printf("%s: %u iterations took %" PRIu64 " microseconds.\n",
+		    stab_points == 0 ? "Feedback loop" : "Stabilization",
 		    count, rmicro);
 
 		if (rmicro == 0) {
@@ -858,6 +874,7 @@ work_memcpy_calibrate(uint64_t micro)
 				    "Not enough precision, "
 				    "please recompile with increased SCALE.");
 		}
+
 		count = new_count;
 	}
 
@@ -865,12 +882,20 @@ work_memcpy_calibrate(uint64_t micro)
 		errx(EXIT_FAILURE,
 		    "Real duration caused overflow. "
 		    "INT_MEMCPY_ITERATIONS too high?");
-	printf("Calibration succeeded after %u iterations.\n", niter);
-	printf("Calculated count: %u\n", count);
+
+	/* Stabilization: Do we need to gather more points? */
+	if (stab_points < rstab) {
+		stab_iter_sum += count;
+		++stab_points;
+		goto meat;
+	}
+
+	printf("Calibration succeeded after %u feedback loops.\n", niter);
+	printf("Calculated count: %u\n", stab_iter_sum / stab_points);
 	return;
 too_many_iter:
 	errx(EXIT_FAILURE,
-	    "Calibration failed, too many iterations would be needed.");
+	    "Calibration failed, work iterations overflow.");
 }
 
 void
