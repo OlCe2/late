@@ -94,6 +94,8 @@ unsigned int cmiter = 8;	/* Max number of attempts during calibration. */
 volatile sig_atomic_t start;	/* Can we start? */
 volatile sig_atomic_t done;	/* Should we stop? */
 
+struct timespec gstime;	/* Real start time */
+
 /* Internal multiplicator for memcpy() iterations. */
 #define INT_MEMCPY_ITERATIONS	4096
 
@@ -287,8 +289,28 @@ ts_print(char *pre, struct timespec *ts)
 }
 
 static void
+output_reports(void)
+{
+	struct timespec etime;	/* Real end time */
+
+	/* Compute the total time */
+	get_time(&etime);
+	timespecsub(&etime, &gstime, &etime);
+
+	/* Generate reports */
+	test_latency_report(&lat_set);
+	work_memcpy_report(&work_set);
+	cpu_report(&etime);
+}
+
+static void
 finished(int trash)
 {
+	if (done != 0) {
+		/* Second time we are called, bail out immediately. */
+		output_reports();
+		exit(EXIT_FAILURE);
+	}
 	done = 1;
 }
 
@@ -533,7 +555,6 @@ free_patterns_content(struct patterns *patterns)
 int
 main(int argc, char **argv)
 {
-	struct timespec stime, etime;	/* Real start and end time */
 	bool cflag = false;	/* Calibrate ? */
 	unsigned int wmicro;	/* Microseconds of work */
 	bool sflag = false;
@@ -701,10 +722,14 @@ main(int argc, char **argv)
 		/* Let's die on SIGUSR1 in this case. */
 		sigprocmask(SIG_SETMASK, &initial_sset, NULL);
 
+	/* Record the start time to ensure 'gstime' is initialized. */
+	get_time(&gstime);
+
+	/* Install the SIGINT signal handler once 'gstime' has been initialized. */
 	signal(SIGINT, finished);
 
-	/* Record the start time */
-	get_time(&stime);
+	/* Record the start time again after signal(). */
+	get_time(&gstime);
 
 	/* Sleep to let the priority settle before test */
 	if (settle_secs != 0) {
@@ -719,7 +744,7 @@ main(int argc, char **argv)
 		 */
 		ts.tv_sec = settle_secs;
 		ts.tv_nsec = 0;
-		timespecsub(&stime, &ts, &stime);
+		timespecsub(&gstime, &ts, &gstime);
 	}
 
 	if (xflag || pflag) {
@@ -749,7 +774,7 @@ main(int argc, char **argv)
 
 			get_time_fast(&curtime);
 			curtime.tv_sec -= rsecs;
-			if (timespeccmp(&stime, &curtime, <))
+			if (timespeccmp(&gstime, &curtime, <))
 				break;
 		}
 
@@ -761,15 +786,8 @@ main(int argc, char **argv)
 			}
 		}
 	}
-	/* Compute the total time */
-	get_time(&etime);
-	timespecsub(&etime, &stime, &etime);
 
-	/* Generate reports */
-	test_latency_report(&lat_set);
-	work_memcpy_report(&work_set);
-	cpu_report(&etime);
-
+	output_reports();
 	exit(EXIT_SUCCESS);
 }
 
