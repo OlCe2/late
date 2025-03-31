@@ -714,12 +714,12 @@ main(int argc, char **argv)
 
 		/*
 		 * We want the amount of time that we were denied slices before
-		 * we woke up to be reflected in the wstime.  This is why we
-		 * don't just start the timer below.
+		 * we woke up to be reflected in the elapsed time.  That's why
+		 * the initial get_time() was called before sleep().
 		 */
 		ts.tv_sec = settle_secs;
 		ts.tv_nsec = 0;
-		timespecadd(&stime, &ts, &stime);
+		timespecsub(&stime, &ts, &stime);
 	}
 
 	if (xflag || pflag) {
