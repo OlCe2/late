@@ -357,7 +357,7 @@ usage(int rc)
 	    "=== Calibration ===\n"
 	    "-c: Calibrate: Find work iterations to reach the passed duration.\n"
 	    "-a: Max calibration attempts (=feedback loop iterations; "
-	    "    default: 8).\n"
+	    "default: 8).\n"
 	    "-l: Calibration leeway in tenths of percent (default: 10).\n"
 	    "-r: Repetitions to evaluate the final value (stabilization).\n"
 	    "=== Execution pattern test ===\n"
